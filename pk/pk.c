@@ -9,10 +9,12 @@
 #include "bits.h"
 #include "usermem.h"
 #include "flush_icache.h"
+#include "slicer.h"
 #include <stdbool.h>
 
 elf_info current;
 long disabled_hart_mask;
+const char *restore_file;
 
 static void help()
 {
@@ -22,6 +24,11 @@ static void help()
   printk("  -h, --help            Print this help message\n");
   printk("  -p                    Disable on-demand program paging\n");
   printk("  -s                    Print cycles upon termination\n");
+  printk("  --randomize-mapping   Randomize page mapping\n");
+  printk("  -c <N>                Dump checkpoints every N milliseconds\n");
+  printk("  -d <directory>        Specify the directory of checkpoint dumps,\n"
+         "                        default to the current working directory\n");
+  printk("  -r <checkpoint>       Restore from the given checkpoint file\n");
 
   shutdown(0);
 }
@@ -32,30 +39,47 @@ static void suggest_help()
   shutdown(1);
 }
 
-static void handle_option(const char* arg)
+static size_t handle_option(const char** arg)
 {
-  if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0) {
+  if (strcmp(arg[0], "-h") == 0 || strcmp(arg[0], "--help") == 0) {
     help();
-    return;
+    return 1;
   }
 
-  if (strcmp(arg, "-s") == 0) {  // print cycle count upon termination
+  if (strcmp(arg[0], "-s") == 0) {  // print cycle count upon termination
     current.cycle0 = 1;
-    return;
+    return 1;
   }
 
-  if (strcmp(arg, "-p") == 0) { // disable demand paging
+  if (strcmp(arg[0], "-p") == 0) { // disable demand paging
     demand_paging = 0;
-    return;
+    return 1;
   }
 
-  if (strcmp(arg, "--randomize-mapping") == 0) {
+  if (strcmp(arg[0], "--randomize-mapping") == 0) {
     randomize_mapping = 1;
-    return;
+    return 1;
   }
 
-  panic("unrecognized option: `%s'", arg);
+  if (strcmp(arg[0], "-c") == 0 && arg[1]) { // dump checkpoints every N milliseconds
+    checkpoint_interval = atol(arg[1]);
+    if (checkpoint_interval <= 0) suggest_help();
+    return 2;
+  }
+
+  if (strcmp(arg[0], "-d") == 0 && arg[1]) { // specify the directory of checkpoint dumps
+    checkpoint_dir = arg[1];
+    return 2;
+  }
+
+  if (strcmp(arg[0], "-r") == 0 && arg[1]) { // restore from the given checkpoint file
+    restore_file = arg[1];
+    return 2;
+  }
+
+  panic("unrecognized option: `%s'", arg[0]);
   suggest_help();
+  return 0;
 }
 
 #define MAX_ARGS 256
@@ -74,8 +98,8 @@ static size_t parse_args(arg_buf* args)
   uint64_t* pk_argv = &args->buf[1];
   // pk_argv[0] is the proxy kernel itself.  skip it and any flags.
   size_t pk_argc = args->buf[0], arg = 1;
-  for ( ; arg < pk_argc && *(char*)pa2kva(pk_argv[arg]) == '-'; arg++)
-    handle_option((const char*)pa2kva(pk_argv[arg]));
+  while (arg < pk_argc && *(char*)pa2kva(pk_argv[arg]) == '-')
+    arg += handle_option((const char**)pa2kva(pk_argv + arg));
 
   for (size_t i = 0; arg + i < pk_argc; i++)
     args->argv[i] = (char*)pa2kva(pk_argv[arg + i]);
