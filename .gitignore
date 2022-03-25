@@ -9,3 +9,9 @@ build/
 autom4te.cache/
 *.swp
 *~
+
+# macOS
+*.DS_Store
+
+# VS Code
+.vscode
