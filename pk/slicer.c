@@ -17,7 +17,7 @@ void slicer_init()
   last_checkpoint_cycle = rdcycle64();
 }
 
-void slicer_syscall_handler(void* tf)
+void slicer_syscall_handler(const void* tf)
 {
   // skip if checkpointing is disabled
   if (!checkpoint_interval) return;
