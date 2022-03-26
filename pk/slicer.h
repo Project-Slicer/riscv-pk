@@ -9,5 +9,6 @@ extern size_t checkpoint_interval;
 extern const char *checkpoint_dir;
 
 void slicer_init();
+void slicer_syscall_handler(void* tf);
 
 #endif
