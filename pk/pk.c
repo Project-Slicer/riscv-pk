@@ -14,7 +14,8 @@
 
 elf_info current;
 long disabled_hart_mask;
-const char *restore_file;
+
+static const char *restore_file;
 
 static void help()
 {
@@ -68,11 +69,19 @@ static size_t handle_option(const char** arg)
   }
 
   if (strcmp(arg[0], "-d") == 0 && arg[1]) { // specify the directory of checkpoint dumps
+    if (!checkpoint_interval) {
+      printk("-c must be specified before -d\n");
+      suggest_help();
+    }
     checkpoint_dir = arg[1];
     return 2;
   }
 
   if (strcmp(arg[0], "-r") == 0 && arg[1]) { // restore from the given checkpoint file
+    if (checkpoint_interval) {
+      printk("-c must not be specified before -r\n");
+      suggest_help();
+    }
     restore_file = arg[1];
     return 2;
   }
