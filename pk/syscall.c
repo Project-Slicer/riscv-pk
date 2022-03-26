@@ -13,8 +13,6 @@
 
 typedef long (*syscall_t)(long, long, long, long, long, long, long);
 
-#define CLOCK_FREQ 1000000000
-
 #define MAX_BUF 512
 
 void sys_exit(int code)
