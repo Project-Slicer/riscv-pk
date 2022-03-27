@@ -106,7 +106,9 @@ static inline uint64_t rdinstret64()
 
 #define ARRAY_SIZE(x) (sizeof(x)/sizeof((x)[0]))
 
-#define CLOCK_FREQ 1000000000
+#ifndef CLOCK_FREQ
+#define CLOCK_FREQ 1000000000 // 1GHz
+#endif // CLOCK_FREQ
 
 #ifdef __cplusplus
 }
