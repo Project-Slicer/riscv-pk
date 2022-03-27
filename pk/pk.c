@@ -41,7 +41,7 @@ static void suggest_help()
   shutdown(1);
 }
 
-static size_t handle_option(const char** arg)
+static size_t handle_option(const char** arg, bool last_arg)
 {
   if (strcmp(arg[0], "-h") == 0 || strcmp(arg[0], "--help") == 0) {
     help();
@@ -58,18 +58,18 @@ static size_t handle_option(const char** arg)
     return 1;
   }
 
-  if (strcmp(arg[0], "--randomize-mapping") == 0) {
+  if (strcmp(arg[0], "--randomize-mapping") == 0) { // randomize page mapping
     randomize_mapping = 1;
     return 1;
   }
 
-  if (strcmp(arg[0], "-c") == 0 && arg[1]) { // dump checkpoints every N milliseconds
+  if (strcmp(arg[0], "-c") == 0 && !last_arg && arg[1]) { // dump checkpoints every N milliseconds
     checkpoint_interval = atol(arg[1]);
     if (checkpoint_interval <= 0) suggest_help();
     return 2;
   }
 
-  if (strcmp(arg[0], "-d") == 0 && arg[1]) { // specify the directory of checkpoint dumps
+  if (strcmp(arg[0], "-d") == 0 && !last_arg && arg[1]) { // specify the directory of checkpoint dumps
     if (!checkpoint_interval) {
       printk("-c must be specified before -d\n");
       suggest_help();
@@ -78,7 +78,7 @@ static size_t handle_option(const char** arg)
     return 2;
   }
 
-  if (strcmp(arg[0], "-r") == 0 && arg[1]) { // restore from the given checkpoint file
+  if (strcmp(arg[0], "-r") == 0 && !last_arg && arg[1]) { // restore from the given checkpoint file
     if (checkpoint_interval) {
       printk("-c must not be specified before -r\n");
       suggest_help();
@@ -107,9 +107,11 @@ static size_t parse_args(arg_buf* args)
   kassert(r == 0);
   uint64_t* pk_argv = &args->buf[1];
   // pk_argv[0] is the proxy kernel itself.  skip it and any flags.
-  size_t pk_argc = args->buf[0], arg = 1;
-  while (arg < pk_argc && *(char*)pa2kva(pk_argv[arg]) == '-')
-    arg += handle_option((const char**)pa2kva(pk_argv + arg));
+  size_t pk_argc = args->buf[0], arg;
+  for (arg = 1; arg < pk_argc; arg++)
+    pk_argv[arg] = pa2kva(pk_argv[arg]);
+  for (arg = 1; arg < pk_argc && *(char*)pk_argv[arg] == '-';)
+    arg += handle_option((const char**)pk_argv + arg, arg == pk_argc - 1);
 
   for (size_t i = 0; arg + i < pk_argc; i++)
     args->argv[i] = (char*)pa2kva(pk_argv[arg + i]);
