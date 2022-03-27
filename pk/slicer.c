@@ -29,5 +29,7 @@ void slicer_syscall_handler(const void* tf)
 
     // TODO
     printk("checkpointing not implemented\n");
+    if (checkpoint_dir)
+      printk("  checkpoint directory: %s\n", checkpoint_dir);
   }
 }
