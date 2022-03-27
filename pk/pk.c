@@ -114,7 +114,7 @@ static size_t parse_args(arg_buf* args)
     arg += handle_option((const char**)pk_argv + arg, arg == pk_argc - 1);
 
   for (size_t i = 0; arg + i < pk_argc; i++)
-    args->argv[i] = (char*)pa2kva(pk_argv[arg + i]);
+    args->argv[i] = (char*)(pk_argv[arg + i]);
   return pk_argc - arg;
 }
 
