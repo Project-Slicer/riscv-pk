@@ -11,6 +11,7 @@
 #include "flush_icache.h"
 #include "slicer.h"
 #include <stdbool.h>
+#include <stdlib.h>
 
 elf_info current;
 long disabled_hart_mask;
