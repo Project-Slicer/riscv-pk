@@ -14,6 +14,7 @@ pk_hdrs = \
 	pk.h \
 	syscall.h \
 	usermem.h \
+	slicer.h \
 
 pk_c_srcs = \
 	file.c \
@@ -24,6 +25,7 @@ pk_c_srcs = \
 	console.c \
 	mmap.c \
 	usermem.c \
+	slicer.c \
 
 pk_asm_srcs = \
 	entry.S \
