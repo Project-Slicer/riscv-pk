@@ -16,8 +16,6 @@
 elf_info current;
 long disabled_hart_mask;
 
-static const char *restore_file;
-
 static void help()
 {
   printk("Proxy kernel\n\n");
