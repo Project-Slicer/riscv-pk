@@ -581,3 +581,36 @@ uintptr_t pk_vm_init()
 
   return kernel_stack_top;
 }
+
+static void __dump_page_table(pte_t* t, int level, uintptr_t vaddr, dump_callback_t callback)
+{
+  for (size_t i = 0; i < RISCV_PGSIZE / sizeof(pte_t); i++) {
+    pte_t pte = t[i];
+    uintptr_t next_vaddr = vaddr | (i << (RISCV_PGLEVEL_BITS * level + RISCV_PGSHIFT));
+    if (pte & PTE_V) {
+      uintptr_t paddr = pte_ppn(pte) << RISCV_PGSHIFT;
+      if ((pte & PTE_R) || (pte & PTE_X)) {
+        if (!level) {
+          callback(next_vaddr, (void*)pa2kva(paddr), 0);
+        }
+      } else if (level > 0) {
+        __dump_page_table((pte_t*)pa2kva(paddr), level - 1, next_vaddr, callback);
+      }
+    } else if (pte && !level) {
+      vmr_t* v = (vmr_t*)pte;
+      mmap_info_t info = {
+        .addr = v->addr,
+        .length = v->length,
+        .file = v->file,
+        .offset = v->offset,
+        .prot = v->prot,
+      };
+      callback(next_vaddr, &info, 1);
+    }
+  }
+}
+
+void dump_page_table(dump_callback_t callback)
+{
+  __dump_page_table(root_page_table, RISCV_PGLEVELS - 1, 0, callback);
+}

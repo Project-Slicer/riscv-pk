@@ -43,4 +43,15 @@ extern uintptr_t kva2pa_offset;
 #define kva2pa_maybe(va) ((uintptr_t)(va) >= KVA_START ? kva2pa(va) : (uintptr_t)(va))
 #define is_uva(va) ((uintptr_t)(va) < KVA_START)
 
+typedef struct {
+  uintptr_t addr;
+  size_t length;
+  file_t* file;
+  size_t offset;
+  int prot;
+} mmap_info_t;
+
+typedef void (*dump_callback_t)(uintptr_t vaddr, void* p, int is_mmap_info);
+void dump_page_table(dump_callback_t callback);
+
 #endif
