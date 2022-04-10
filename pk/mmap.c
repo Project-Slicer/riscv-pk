@@ -590,9 +590,8 @@ static void __dump_page_table(pte_t* t, int level, uintptr_t vaddr, dump_callbac
     if (pte & PTE_V) {
       uintptr_t paddr = pte_ppn(pte) << RISCV_PGSHIFT;
       if ((pte & PTE_R) || (pte & PTE_X)) {
-        if (!level) {
+        if ((pte & PTE_A) && !level)
           callback(next_vaddr, (void*)pa2kva(paddr), 0);
-        }
       } else if (level > 0) {
         __dump_page_table((pte_t*)pa2kva(paddr), level - 1, next_vaddr, callback);
       }
