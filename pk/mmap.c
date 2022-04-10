@@ -12,16 +12,6 @@
 
 uintptr_t kva2pa_offset;
 
-typedef struct vmr_t {
-  struct vmr_t* next;
-  uintptr_t addr;
-  size_t length;
-  file_t* file;
-  size_t offset;
-  unsigned refcnt;
-  int prot;
-} vmr_t;
-
 static vmr_t* vmr_freelist_head;
 
 static pte_t* root_page_table;
@@ -596,15 +586,7 @@ static void __dump_page_table(pte_t* t, int level, uintptr_t vaddr, dump_callbac
         __dump_page_table((pte_t*)pa2kva(paddr), level - 1, next_vaddr, callback);
       }
     } else if (pte && !level) {
-      vmr_t* v = (vmr_t*)pte;
-      mmap_info_t info = {
-        .addr = v->addr,
-        .length = v->length,
-        .file = v->file,
-        .offset = v->offset,
-        .prot = v->prot,
-      };
-      callback(next_vaddr, &info, 1);
+      callback(next_vaddr, (vmr_t*)pte, 1);
     }
   }
 }
