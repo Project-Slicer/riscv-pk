@@ -53,7 +53,7 @@ typedef struct vmr_t {
   int prot;
 } vmr_t;
 
-typedef void (*dump_callback_t)(uintptr_t vaddr, void* p, int is_vmr);
+typedef void (*dump_callback_t)(uintptr_t vaddr, const void* p, int is_vmr);
 void dump_page_table(dump_callback_t callback);
 
 #endif
