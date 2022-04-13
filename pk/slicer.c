@@ -25,11 +25,17 @@ typedef struct {
   size_t epc;
 } strace_t;
 
+// Platform version.
+#define PLATINFO_MAJOR 0
+#define PLATINFO_MINOR 1
+
 // Platform information.
 typedef struct {
   uint8_t magic[2];
   uint8_t endian;
   uint8_t ptr_size;
+  uint16_t major;
+  uint16_t minor;
 } platinfo_t;
 
 // Current executable information.
@@ -75,12 +81,35 @@ static inline int close(int fd)
   return frontend_syscall(SYS_close, fd, 0, 0, 0, 0, 0, 0);
 }
 
+// Wrapper of system call `fstatat`.
+static inline int fstatat(int dir_fd, const char* path, struct frontend_stat* st, int flags)
+{
+  size_t path_size = strlen(path) + 1;
+  return frontend_syscall(SYS_fstatat, dir_fd, kva2pa(path), path_size, kva2pa(st), flags, 0, 0);
+}
+
+// Wrapper of system call `mkdirat`.
+static inline int mkdirat(int dir_fd, const char* path, mode_t mode)
+{
+  size_t path_size = strlen(path) + 1;
+  return frontend_syscall(SYS_mkdirat, dir_fd, kva2pa(path), path_size, mode, 0, 0, 0);
+}
+
 // Opens and creates a write-only file at the checkpoint directory, or panics if it fails.
 static inline int open_assert(const char* path) {
   int fd = openat(dir_fd, path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
   if (fd < 0)
-    panic("failed to open `%s'", path);
+    panic("failed to open: %s", path);
   return fd;
+}
+
+// Creates a directory at the checkpoint directory if it does not exist, or panics if it fails.
+static inline void mkdir_assert(const char* path) {
+  struct frontend_stat st;
+  if (fstatat(dir_fd, path, &st, 0) == 0 && S_ISDIR(st.mode))
+    return;
+  if (mkdirat(dir_fd, path, 0755) < 0)
+    panic("failed to create: %s", path);
 }
 
 // Traces system calls and dumps them to the trace file.
@@ -96,15 +125,17 @@ static void trace_syscall(const trapframe_t* tf)
 
 // Dumps platform information.
 static void dump_platinfo() {
-  platinfo_t platinfo;
-  platinfo.magic[0] = 'p';
-  platinfo.magic[1] = 'i';
+  platinfo_t platinfo = {
+    .magic = {'p', 'i'},
 #ifdef __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-  platinfo.endian = 0;
+    .endian = 0,
 #else
-  platinfo.endian = 1;
+    .endian = 1,
 #endif
-  platinfo.ptr_size = sizeof(void*);
+    .ptr_size = sizeof(void*),
+    .major = PLATINFO_MAJOR,
+    .minor = PLATINFO_MINOR,
+  };
   int fd = open_assert("platinfo");
   write(fd, &platinfo, sizeof(platinfo));
   close(fd);
@@ -179,9 +210,7 @@ void slicer_init()
   }
 
   // initialize syscall trace file
-  syscall_trace_fd = openat(dir_fd, "strace", O_CREAT | O_WRONLY | O_TRUNC, 0644);
-  if (syscall_trace_fd < 0)
-    panic("failed to open syscall trace file");
+  syscall_trace_fd = open_assert("strace");
 }
 
 void slicer_syscall_handler(const void* tf)
