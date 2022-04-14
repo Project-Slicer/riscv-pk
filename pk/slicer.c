@@ -7,6 +7,7 @@
 #include "syscall.h"
 #include "mmap.h"
 #include "boot.h"
+#include "fp_emulation.h"
 #include <stdint.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -61,6 +62,13 @@ typedef struct {
   uint64_t cycle;
   uint64_t instret;
 } counter_t;
+
+// Floating point registers.
+typedef struct {
+  uint32_t status;
+  uint32_t fcsr;
+  uint64_t regs[32];
+} fpregs_t;
 
 // Wrapper of system call `openat`.
 static inline int openat(int dir_fd, const char* path, int flags, mode_t mode)
@@ -182,6 +190,32 @@ static void dump_trapframe(const trapframe_t* tf) {
   close(fd);
 }
 
+// Dumps floating point registers.
+static void dump_fpregs() {
+  fpregs_t fpregs;
+  fpregs.status = (read_csr(sstatus) & SSTATUS_FS) >> 13;
+
+#ifdef __riscv_flen
+# if __riscv_flen == 32
+#   define get_fp_reg(i) GET_F32_REG((i) << 3, 3, 0)
+# else
+#   define get_fp_reg(i) GET_F64_REG((i) << 3, 3, 0)
+# endif
+
+  if (fpregs.status) {
+    fpregs.fcsr = read_csr(fcsr);
+    for (size_t i = 0; i < 32; i++)
+      fpregs.regs[i] = get_fp_reg(i);
+  }
+
+# undef get_fp_reg
+#endif
+
+  int fd = open_assert("fpregs");
+  write(fd, &fpregs, sizeof(fpregs));
+  close(fd);
+}
+
 // Performs checkpoint operation.
 static void do_checkpoint(const trapframe_t* tf)
 {
@@ -190,6 +224,7 @@ static void do_checkpoint(const trapframe_t* tf)
   dump_current();
   dump_counter();
   dump_trapframe(tf);
+  dump_fpregs();
 }
 
 void slicer_init()
