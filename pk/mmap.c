@@ -314,7 +314,7 @@ static int __handle_page_fault(uintptr_t vaddr, int prot)
     __vmr_decref(v, 1);
     *pte = pte_create(ppn, prot_to_type(v->prot, 1, 0));
     flush_tlb_entry(vaddr);
-  } else {
+  } else if (compress_mem_dump) {
     bool flush = false;
     if (!(*pte & PTE_A)) {
       *pte |= PTE_A;
