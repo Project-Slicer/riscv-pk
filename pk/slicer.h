@@ -7,6 +7,7 @@
 
 extern size_t checkpoint_interval;
 extern const char* checkpoint_dir;
+extern int compress_mem_dump;
 extern const char* restore_file;
 
 void slicer_init();

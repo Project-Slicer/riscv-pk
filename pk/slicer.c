@@ -15,6 +15,7 @@
 
 size_t checkpoint_interval; // set by -c flag, milliseconds
 const char* checkpoint_dir; // set by -d flag
+int compress_mem_dump; // set by --compress flag
 const char* restore_file; // set by -r flag
 
 static uint64_t last_checkpoint_cycle;
@@ -219,12 +220,18 @@ static void dump_fpregs() {
 // Performs checkpoint operation.
 static void do_checkpoint(const trapframe_t* tf)
 {
-  // TODO
+  // dump global information
   dump_platinfo();
   dump_current();
   dump_counter();
   dump_trapframe(tf);
   dump_fpregs();
+
+  // dump file objects
+  // TODO
+
+  // dump memory
+  // TODO
 }
 
 void slicer_init()
