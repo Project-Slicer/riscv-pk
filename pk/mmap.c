@@ -6,6 +6,7 @@
 #include "boot.h"
 #include "bits.h"
 #include "mtrap.h"
+#include "slicer.h"
 #include <stdint.h>
 #include <stdbool.h>
 #include <errno.h>
@@ -262,12 +263,18 @@ static uintptr_t __vm_alloc(size_t npage)
   return __vm_alloc_at(current.brk, end, npage);
 }
 
-static inline pte_t prot_to_type(int prot, int user)
+static inline pte_t prot_to_type(int prot, int user, int set_ad)
 {
   pte_t pte = 0;
-  if (prot & PROT_READ) pte |= PTE_R | PTE_A;
-  if (prot & PROT_WRITE) pte |= PTE_W | PTE_D;
-  if (prot & PROT_EXEC) pte |= PTE_X | PTE_A;
+  if (compress_mem_dump && !set_ad) {
+    if (prot & PROT_READ) pte |= PTE_R;
+    if (prot & PROT_WRITE) pte |= PTE_W;
+    if (prot & PROT_EXEC) pte |= PTE_X;
+  } else {
+    if (prot & PROT_READ) pte |= PTE_R | PTE_A;
+    if (prot & PROT_WRITE) pte |= PTE_W | PTE_D;
+    if (prot & PROT_EXEC) pte |= PTE_X | PTE_A;
+  }
   if (pte == 0) pte = PTE_R;
   if (user) pte |= PTE_U;
   return pte;
@@ -281,11 +288,6 @@ int __valid_user_range(uintptr_t vaddr, size_t len)
   return last_vaddr < current.mmap_max;
 }
 
-static void flush_tlb_entry(uintptr_t vaddr)
-{
-  asm volatile ("sfence.vma %0" : : "r" (vaddr) : "memory");
-}
-
 static int __handle_page_fault(uintptr_t vaddr, int prot)
 {
   uintptr_t vpn = vaddr >> RISCV_PGSHIFT;
@@ -293,18 +295,16 @@ static int __handle_page_fault(uintptr_t vaddr, int prot)
 
   pte_t* pte = __walk(vaddr);
 
-  if (pte == 0 || *pte == 0 || !__valid_user_range(vaddr, 1))
+  if (pte == 0 || *pte == 0 || !__valid_user_range(vaddr, 1)) {
     return -1;
-  else if (!(*pte & PTE_V))
-  {
+  } else if (!(*pte & PTE_V)) {
     uintptr_t ppn = __page_alloc_assert() / RISCV_PGSIZE;
     uintptr_t kva = pa2kva(ppn * RISCV_PGSIZE);
 
     vmr_t* v = (vmr_t*)*pte;
-    *pte = pte_create(ppn, prot_to_type(PROT_READ|PROT_WRITE, 0));
+    *pte = pte_create(ppn, prot_to_type(PROT_READ|PROT_WRITE, 0, 1));
     flush_tlb_entry(vaddr);
-    if (v->file)
-    {
+    if (v->file) {
       size_t flen = MIN(RISCV_PGSIZE, v->length - (vaddr - v->addr));
       ssize_t ret = file_pread(v->file, (void*)kva, flen, vaddr - v->addr + v->offset);
       kassert(ret > 0);
@@ -312,11 +312,23 @@ static int __handle_page_fault(uintptr_t vaddr, int prot)
         memset((void*)vaddr + ret, 0, RISCV_PGSIZE - ret);
     }
     __vmr_decref(v, 1);
-    *pte = pte_create(ppn, prot_to_type(v->prot, 1));
+    *pte = pte_create(ppn, prot_to_type(v->prot, 1, 0));
     flush_tlb_entry(vaddr);
+  } else {
+    bool flush = false;
+    if (!(*pte & PTE_A)) {
+      *pte |= PTE_A;
+      flush = true;
+    }
+    if (!(*pte & PTE_D) && (prot & PROT_WRITE)) {
+      *pte |= PTE_D;
+      flush = true;
+    }
+    if (flush)
+      flush_tlb_entry(vaddr);
   }
 
-  pte_t perms = pte_create(0, prot_to_type(prot, 1));
+  pte_t perms = pte_create(0, prot_to_type(prot, 1, 0)) & ~(PTE_A | PTE_D);
   if ((*pte & perms) != perms)
     return -1;
 
@@ -489,7 +501,7 @@ uintptr_t do_mprotect(uintptr_t addr, size_t length, int prot)
           res = -EACCES;
           break;
         }
-        *pte = pte_create(pte_ppn(*pte), prot_to_type(prot, 1));
+        *pte = pte_create(pte_ppn(*pte), prot_to_type(prot, 1, 0));
       }
 
       flush_tlb_entry(a);
@@ -503,7 +515,7 @@ static inline void __map_kernel_page(uintptr_t vaddr, uintptr_t paddr, int level
 {
   pte_t* pte = __walk_internal(root_page_table, vaddr, 1, level);
   kassert(pte);
-  *pte = pte_create(paddr >> RISCV_PGSHIFT, prot_to_type(prot, 0));
+  *pte = pte_create(paddr >> RISCV_PGSHIFT, prot_to_type(prot, 0, 1));
 }
 
 static void __map_kernel_range(uintptr_t vaddr, uintptr_t paddr, size_t len, int prot)
