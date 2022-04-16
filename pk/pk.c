@@ -28,6 +28,7 @@ static void help()
   printk("  -c <N>                Dump checkpoints every N milliseconds\n");
   printk("  -d <directory>        Specify the directory of checkpoint dumps,\n"
          "                        default to the current working directory\n");
+  printk("  --compress            Compress memory dump\n");
   printk("  -r <checkpoint>       Restore from the given checkpoint file\n");
 
   shutdown(0);
@@ -74,6 +75,15 @@ static size_t handle_option(const char** arg, bool last_arg)
     }
     checkpoint_dir = arg[1];
     return 2;
+  }
+
+  if (strcmp(arg[0], "--compress") == 0) { // compress memory dump
+    if (!checkpoint_interval) {
+      printk("-c must be specified before --compress\n");
+      suggest_help();
+    }
+    compress_mem_dump = 1;
+    return 1;
   }
 
   if (strcmp(arg[0], "-r") == 0 && !last_arg && arg[1]) { // restore from the given checkpoint file
