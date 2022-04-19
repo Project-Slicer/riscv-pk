@@ -13,6 +13,9 @@ typedef struct file
   uint32_t refcnt;
 } file_t;
 
+#define MAX_FDS 128
+#define MAX_FILES 128
+extern file_t* fds[];
 extern file_t files[];
 
 file_t* file_get(int fd);

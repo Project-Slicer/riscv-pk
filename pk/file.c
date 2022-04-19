@@ -9,9 +9,7 @@
 #include <string.h>
 #include <errno.h>
 
-#define MAX_FDS 128
-static file_t* fds[MAX_FDS];
-#define MAX_FILES 128
+file_t* fds[MAX_FDS];
 file_t files[MAX_FILES] = {[0 ... MAX_FILES-1] = {-1,0}};
 
 void file_incref(file_t* f)
