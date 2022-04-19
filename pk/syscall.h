@@ -37,7 +37,6 @@
 #define SYS_mremap 216
 #define SYS_mprotect 226
 #define SYS_prlimit64 261
-#define SYS_getmainvars 2011
 #define SYS_rt_sigaction 134
 #define SYS_writev 66
 #define SYS_gettimeofday 169
@@ -68,6 +67,9 @@
 #define SYS_stat 1038
 #define SYS_lstat 1039
 #define SYS_time 1062
+
+#define SYS_getmainvars 2011
+#define SYS_getfdpath 2012
 
 #define IS_ERR_VALUE(x) ((unsigned long)(x) >= (unsigned long)-4096)
 #define ERR_PTR(x) ((void*)(long)(x))
