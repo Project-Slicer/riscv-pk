@@ -12,6 +12,8 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <string.h>
+#include <stdbool.h>
+#include <sys/param.h>
 
 size_t checkpoint_interval; // set by -c flag, milliseconds
 const char* checkpoint_dir; // set by -d flag
@@ -72,6 +74,17 @@ typedef struct {
   uint64_t regs[32];
 } fpregs_t;
 
+// Kernel file descriptor data.
+typedef struct {
+  uint64_t offset;
+  uint32_t flags;
+  uint32_t path_len;
+} kfd_t;
+
+// For kernel file descriptor dump.
+static bool kfd_visited[MAX_FILES];
+static char path_buf[PATH_MAX];
+
 // VMR object data.
 typedef struct {
   size_t addr;
@@ -127,6 +140,18 @@ static inline int mkdirat(int dir_fd, const char* path, mode_t mode)
   return frontend_syscall(SYS_mkdirat, dir_fd, kva2pa(path), path_size, mode, 0, 0, 0);
 }
 
+// Wrapper of system call `lseek`.
+static inline ssize_t lseek(int fd, size_t offset, int whence)
+{
+  return frontend_syscall(SYS_lseek, fd, offset, whence, 0, 0, 0, 0);
+}
+
+// Wrapper of system call `fcntl`.
+static inline int fcntl(int fd, int cmd, int arg)
+{
+  return frontend_syscall(SYS_fcntl, fd, cmd, arg, 0, 0, 0, 0);
+}
+
 // Opens and creates a write-only file at the checkpoint directory, or panics if it fails.
 static inline int open_assert(const char* path)
 {
@@ -144,6 +169,15 @@ static inline void mkdir_assert(const char* path)
     return;
   if (mkdirat(dir_fd, path, 0755) < 0)
     panic("failed to create: %s", path);
+}
+
+// Gets the path of the given file descriptor, or panics if it fails.
+static inline int getfdpath_assert(int fd, char* buf, size_t size)
+{
+  int len = frontend_syscall(SYS_getfdpath, fd, kva2pa(buf), size, 0, 0, 0, 0);
+  if (len < 0)
+    panic("failed to get path of fd: %d", fd);
+  return len;
 }
 
 // Traces system calls and dumps them to the trace file.
@@ -254,6 +288,84 @@ static inline uint32_t file_index(file_t* file)
   return file ? (uint32_t)(file - files) : -1;
 }
 
+// Checks if the given path represents a device file.
+static bool is_dev_file(const char* path, size_t len)
+{
+  const char dev[] = "/dev/";
+  if (len >= sizeof(dev) - 1)
+    for (size_t i = 0; i < sizeof(dev) - 1; i++)
+      if (path_buf[i] != dev[i])
+        return false;
+  return true;
+}
+
+// Dumps kernel file descriptor.
+static void dump_kfd(file_t* file)
+{
+  // check if the kfd has already been dumped
+  uint32_t index = file_index(file);
+  if (kfd_visited[index])
+    return;
+  kfd_visited[index] = true;
+  int kfd = file->kfd;
+
+  // get path of the kfd dump file
+  char dump_path[sizeof("file/kfd/0123456789")];
+  int ret = snprintf(dump_path, sizeof(dump_path), "file/kfd/%d", kfd);
+  if (ret < 0 || (size_t)ret >= sizeof(dump_path))
+    panic("failed to get path of kfd dump file");
+
+  // get path of the kfd
+  uint32_t path_len = getfdpath_assert(kfd, path_buf, sizeof(path_buf));
+  if (is_dev_file(path_buf, path_len))
+    return;
+
+  // dump kfd data
+  int fd = open_assert(dump_path);
+  kfd_t data = {
+    .offset = lseek(kfd, 0, SEEK_CUR),
+    .flags = fcntl(kfd, F_GETFL, 0),
+    .path_len = path_len,
+  };
+  write(fd, &data, sizeof(data));
+  write(fd, path_buf, path_len);
+  close(fd);
+}
+
+// Dumps file objects.
+static void dump_files()
+{
+  mkdir_assert("file");
+  mkdir_assert("file/kfd");
+  memset(kfd_visited, 0, sizeof(kfd_visited));
+  uint32_t length, index;
+
+  // dump file object data
+  int obj = open_assert("file/obj");
+  length = MAX_FILES;
+  write(obj, &length, sizeof(length));
+  for (size_t i = 0; i < MAX_FILES; i++) {
+    if (files[i].refcnt) {
+      dump_kfd(&files[i]);
+      index = files[i].kfd;
+    } else {
+      index = -1;
+    }
+    write(obj, &index, sizeof(index));
+  }
+  close(obj);
+
+  // dump file descriptors
+  int fd = open_assert("file/fd");
+  length = MAX_FDS;
+  write(fd, &length, sizeof(length));
+  for (size_t i = 0; i < MAX_FDS; i++) {
+    index = file_index(fds[i]);
+    write(fd, &index, sizeof(index));
+  }
+  close(fd);
+}
+
 // Dumps page.
 static void dump_page(uintptr_t vaddr, const void* page)
 {
@@ -351,7 +463,7 @@ static void do_checkpoint(const trapframe_t* tf)
   dump_trapframe(tf);
   dump_fpregs();
   // dump file objects
-  // TODO
+  dump_files();
   // dump memory
   dump_memory();
 }
