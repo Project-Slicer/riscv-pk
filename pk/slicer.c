@@ -36,6 +36,7 @@ typedef struct {
   uint8_t magic[2];
   uint8_t endian;
   uint8_t ptr_size;
+  uint32_t page_size;
   uint16_t major;
   uint16_t minor;
 } platinfo_t;
@@ -71,6 +72,28 @@ typedef struct {
   uint64_t regs[32];
 } fpregs_t;
 
+// VMR object data.
+typedef struct {
+  size_t addr;
+  size_t length;
+  size_t offset;
+  uint32_t file;
+  uint32_t prot;
+} vmr_data_t;
+
+// Physical/VMR mapping record.
+typedef struct {
+  size_t vaddr;
+  size_t id;
+} map_record_t;
+
+// For memory dump.
+static int page_file, vmr_file, pmap_file, vmap_file;
+static size_t page_index;
+#define MAX_VMRS 128
+static vmr_t* vmrs[MAX_VMRS];
+static size_t vmrs_count;
+
 // Wrapper of system call `openat`.
 static inline int openat(int dir_fd, const char* path, int flags, mode_t mode)
 {
@@ -105,7 +128,8 @@ static inline int mkdirat(int dir_fd, const char* path, mode_t mode)
 }
 
 // Opens and creates a write-only file at the checkpoint directory, or panics if it fails.
-static inline int open_assert(const char* path) {
+static inline int open_assert(const char* path)
+{
   int fd = openat(dir_fd, path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
   if (fd < 0)
     panic("failed to open: %s", path);
@@ -113,7 +137,8 @@ static inline int open_assert(const char* path) {
 }
 
 // Creates a directory at the checkpoint directory if it does not exist, or panics if it fails.
-static inline void mkdir_assert(const char* path) {
+static inline void mkdir_assert(const char* path)
+{
   struct frontend_stat st;
   if (fstatat(dir_fd, path, &st, 0) == 0 && S_ISDIR(st.mode))
     return;
@@ -133,7 +158,8 @@ static void trace_syscall(const trapframe_t* tf)
 }
 
 // Dumps platform information.
-static void dump_platinfo() {
+static void dump_platinfo()
+{
   platinfo_t platinfo = {
     .magic = {'p', 'i'},
 #ifdef __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
@@ -142,6 +168,7 @@ static void dump_platinfo() {
     .endian = 1,
 #endif
     .ptr_size = sizeof(void*),
+    .page_size = RISCV_PGSIZE,
     .major = PLATINFO_MAJOR,
     .minor = PLATINFO_MINOR,
   };
@@ -151,7 +178,8 @@ static void dump_platinfo() {
 }
 
 // Dumps current executable's information.
-static void dump_current() {
+static void dump_current()
+{
   current_t cur = {
     .phent = current.phent,
     .phnum = current.phnum,
@@ -173,7 +201,8 @@ static void dump_current() {
 }
 
 // Dumps performance counters.
-static void dump_counter() {
+static void dump_counter()
+{
   counter_t counter = {
     .time = rdtime64(),
     .cycle = rdcycle64(),
@@ -185,14 +214,16 @@ static void dump_counter() {
 }
 
 // Dumps trapframe.
-static void dump_trapframe(const trapframe_t* tf) {
+static void dump_trapframe(const trapframe_t* tf)
+{
   int fd = open_assert("tf");
   write(fd, tf, sizeof(*tf));
   close(fd);
 }
 
 // Dumps floating point registers.
-static void dump_fpregs() {
+static void dump_fpregs()
+{
   fpregs_t fpregs;
   fpregs.status = (read_csr(sstatus) & SSTATUS_FS) >> 13;
 
@@ -217,6 +248,99 @@ static void dump_fpregs() {
   close(fd);
 }
 
+// Returns the index of the given file object, or -1 if the file object is NULL.
+static inline uint32_t file_index(file_t* file)
+{
+  return file ? (uint32_t)(file - files) : -1;
+}
+
+// Dumps page.
+static void dump_page(uintptr_t vaddr, const void* page)
+{
+  write(page_file, page, RISCV_PGSIZE);
+  map_record_t record = {
+    .vaddr = vaddr,
+    .id = page_index++,
+  };
+  write(pmap_file, &record, sizeof(record));
+}
+
+// Inserts the given VMR object to the VMR list, returns the index of the VMR object.
+static size_t vmr_insert(vmr_t* vmr)
+{
+  for (size_t count = vmrs_count; count > 0; count--) {
+    size_t index = count - 1;
+    if (vmrs[index] == vmr)
+      return index;
+  }
+  if (vmrs_count == MAX_VMRS)
+    panic("VMR list length exceeded");
+  vmrs[vmrs_count++] = vmr;
+
+  // dump to file
+  vmr_data_t data = {
+    .addr = vmr->addr,
+    .length = vmr->length,
+    .offset = vmr->offset,
+    .file = file_index(vmr->file),
+    .prot = vmr->prot,
+  };
+  write(vmr_file, &data, sizeof(data));
+
+  return vmrs_count - 1;
+}
+
+// Dumps VMR.
+static void dump_vmr(uintptr_t vaddr, const vmr_t* vmr)
+{
+  map_record_t record = {
+    .vaddr = vaddr,
+    .id = vmr_insert(vmr),
+  };
+  write(vmap_file, &record, sizeof(record));
+}
+
+// Dumps page and VMR.
+static void dump_page_vmr(uintptr_t vaddr, pte_t* pte, const void* p, int is_vmr)
+{
+  if (is_vmr)
+    dump_vmr(vaddr, p);
+  else
+    dump_page(vaddr, p);
+}
+
+// Clears the A-bit and D-bit of the page table entry.
+static void clear_ad(uintptr_t vaddr, pte_t* pte, const void* p, int is_vmr)
+{
+  if (!is_vmr) {
+    *pte &= ~(PTE_A | PTE_D);
+    flush_tlb_entry(vaddr);
+  }
+}
+
+// Dumps memory.
+static void dump_memory()
+{
+  // create files
+  mkdir_assert("mem");
+  page_file = open_assert("mem/page");
+  vmr_file = open_assert("mem/vmr");
+  pmap_file = open_assert("mem/pmap");
+  vmap_file = open_assert("mem/vmap");
+
+  // dump pages and VMRs
+  page_index = vmrs_count = 0;
+  dump_page_table(dump_page_vmr);
+  // clear A-bit and D-bit of page table entries
+  dump_page_table(clear_ad);
+
+  // close files
+  close(page_file);
+  close(vmr_file);
+  close(pmap_file);
+  close(vmap_file);
+}
+
 // Performs checkpoint operation.
 static void do_checkpoint(const trapframe_t* tf)
 {
@@ -226,12 +350,10 @@ static void do_checkpoint(const trapframe_t* tf)
   dump_counter();
   dump_trapframe(tf);
   dump_fpregs();
-
   // dump file objects
   // TODO
-
   // dump memory
-  // TODO
+  dump_memory();
 }
 
 void slicer_init()
