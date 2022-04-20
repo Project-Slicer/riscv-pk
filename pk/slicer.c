@@ -108,46 +108,46 @@ static vmr_t const* vmrs[MAX_VMRS];
 static size_t vmrs_count;
 
 // Wrapper of system call `openat`.
-static inline int openat(int dir_fd, const char* path, int flags, mode_t mode)
+static inline int sys_openat(int dir_fd, const char* path, int flags, mode_t mode)
 {
   size_t path_size = strlen(path) + 1;
   return frontend_syscall(SYS_openat, dir_fd, kva2pa(path), path_size, flags, mode, 0, 0);
 }
 
 // Wrapper of system call `write`.
-static inline ssize_t write(int fd, const void* buf, size_t count)
+static inline ssize_t sys_write(int fd, const void* buf, size_t count)
 {
   return frontend_syscall(SYS_write, fd, kva2pa(buf), count, 0, 0, 0, 0);
 }
 
 // Wrapper of system call `close`.
-static inline int close(int fd)
+static inline int sys_close(int fd)
 {
   return frontend_syscall(SYS_close, fd, 0, 0, 0, 0, 0, 0);
 }
 
 // Wrapper of system call `fstatat`.
-static inline int fstatat(int dir_fd, const char* path, struct frontend_stat* st, int flags)
+static inline int sys_fstatat(int dir_fd, const char* path, struct frontend_stat* st, int flags)
 {
   size_t path_size = strlen(path) + 1;
   return frontend_syscall(SYS_fstatat, dir_fd, kva2pa(path), path_size, kva2pa(st), flags, 0, 0);
 }
 
 // Wrapper of system call `mkdirat`.
-static inline int mkdirat(int dir_fd, const char* path, mode_t mode)
+static inline int sys_mkdirat(int dir_fd, const char* path, mode_t mode)
 {
   size_t path_size = strlen(path) + 1;
   return frontend_syscall(SYS_mkdirat, dir_fd, kva2pa(path), path_size, mode, 0, 0, 0);
 }
 
 // Wrapper of system call `lseek`.
-static inline ssize_t lseek(int fd, size_t offset, int whence)
+static inline ssize_t sys_lseek(int fd, size_t offset, int whence)
 {
   return frontend_syscall(SYS_lseek, fd, offset, whence, 0, 0, 0, 0);
 }
 
 // Wrapper of system call `fcntl`.
-static inline int fcntl(int fd, int cmd, int arg)
+static inline int sys_fcntl(int fd, int cmd, int arg)
 {
   return frontend_syscall(SYS_fcntl, fd, cmd, arg, 0, 0, 0, 0);
 }
@@ -155,7 +155,7 @@ static inline int fcntl(int fd, int cmd, int arg)
 // Opens and creates a write-only file at the checkpoint directory, or panics if it fails.
 static inline int open_assert(const char* path)
 {
-  int fd = openat(dir_fd, path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  int fd = sys_openat(dir_fd, path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
   if (fd < 0)
     panic("failed to open: %s", path);
   return fd;
@@ -165,9 +165,9 @@ static inline int open_assert(const char* path)
 static inline void mkdir_assert(const char* path)
 {
   struct frontend_stat st;
-  if (fstatat(dir_fd, path, &st, 0) == 0 && S_ISDIR(st.mode))
+  if (sys_fstatat(dir_fd, path, &st, 0) == 0 && S_ISDIR(st.mode))
     return;
-  if (mkdirat(dir_fd, path, 0755) < 0)
+  if (sys_mkdirat(dir_fd, path, 0755) < 0)
     panic("failed to create: %s", path);
 }
 
@@ -188,7 +188,7 @@ static void trace_syscall(const trapframe_t* tf)
     strace.args[i] = tf->gpr[10 + i];
   strace.args[6] = tf->gpr[17];
   strace.epc = tf->epc;
-  write(syscall_trace_fd, &strace, sizeof(strace));
+  sys_write(syscall_trace_fd, &strace, sizeof(strace));
 }
 
 // Dumps platform information.
@@ -207,8 +207,8 @@ static void dump_platinfo()
     .minor = PLATINFO_MINOR,
   };
   int fd = open_assert("platinfo");
-  write(fd, &platinfo, sizeof(platinfo));
-  close(fd);
+  sys_write(fd, &platinfo, sizeof(platinfo));
+  sys_close(fd);
 }
 
 // Dumps current executable's information.
@@ -230,8 +230,8 @@ static void dump_current()
     .vm_alloc_guess = current.vm_alloc_guess,
   };
   int fd = open_assert("current");
-  write(fd, &cur, sizeof(cur));
-  close(fd);
+  sys_write(fd, &cur, sizeof(cur));
+  sys_close(fd);
 }
 
 // Dumps performance counters.
@@ -243,16 +243,16 @@ static void dump_counter()
     .instret = rdinstret64(),
   };
   int fd = open_assert("counter");
-  write(fd, &counter, sizeof(counter));
-  close(fd);
+  sys_write(fd, &counter, sizeof(counter));
+  sys_close(fd);
 }
 
 // Dumps trapframe.
 static void dump_trapframe(const trapframe_t* tf)
 {
   int fd = open_assert("tf");
-  write(fd, tf, sizeof(*tf));
-  close(fd);
+  sys_write(fd, tf, sizeof(*tf));
+  sys_close(fd);
 }
 
 // Dumps floating point registers.
@@ -278,8 +278,8 @@ static void dump_fpregs()
 #endif
 
   int fd = open_assert("fpregs");
-  write(fd, &fpregs, sizeof(fpregs));
-  close(fd);
+  sys_write(fd, &fpregs, sizeof(fpregs));
+  sys_close(fd);
 }
 
 // Returns the index of the given file object, or -1 if the file object is NULL.
@@ -323,13 +323,13 @@ static void dump_kfd(file_t* file)
   // dump kfd data
   int fd = open_assert(dump_path);
   kfd_t data = {
-    .offset = lseek(kfd, 0, SEEK_CUR),
-    .flags = fcntl(kfd, F_GETFL, 0),
+    .offset = sys_lseek(kfd, 0, SEEK_CUR),
+    .flags = sys_fcntl(kfd, F_GETFL, 0),
     .path_len = path_len,
   };
-  write(fd, &data, sizeof(data));
-  write(fd, path_buf, path_len);
-  close(fd);
+  sys_write(fd, &data, sizeof(data));
+  sys_write(fd, path_buf, path_len);
+  sys_close(fd);
 }
 
 // Dumps file objects.
@@ -343,7 +343,7 @@ static void dump_files()
   // dump file object data
   int obj = open_assert("file/obj");
   length = MAX_FILES;
-  write(obj, &length, sizeof(length));
+  sys_write(obj, &length, sizeof(length));
   for (size_t i = 0; i < MAX_FILES; i++) {
     if (files[i].refcnt) {
       dump_kfd(&files[i]);
@@ -351,30 +351,30 @@ static void dump_files()
     } else {
       index = -1;
     }
-    write(obj, &index, sizeof(index));
+    sys_write(obj, &index, sizeof(index));
   }
-  close(obj);
+  sys_close(obj);
 
   // dump file descriptors
   int fd = open_assert("file/fd");
   length = MAX_FDS;
-  write(fd, &length, sizeof(length));
+  sys_write(fd, &length, sizeof(length));
   for (size_t i = 0; i < MAX_FDS; i++) {
     index = file_index(fds[i]);
-    write(fd, &index, sizeof(index));
+    sys_write(fd, &index, sizeof(index));
   }
-  close(fd);
+  sys_close(fd);
 }
 
 // Dumps page.
 static void dump_page(uintptr_t vaddr, const void* page)
 {
-  write(page_file, page, RISCV_PGSIZE);
+  sys_write(page_file, page, RISCV_PGSIZE);
   map_record_t record = {
     .vaddr = vaddr,
     .id = page_index++,
   };
-  write(pmap_file, &record, sizeof(record));
+  sys_write(pmap_file, &record, sizeof(record));
 }
 
 // Inserts the given VMR object to the VMR list, returns the index of the VMR object.
@@ -397,7 +397,7 @@ static size_t vmr_insert(const vmr_t* vmr)
     .file = file_index(vmr->file),
     .prot = vmr->prot,
   };
-  write(vmr_file, &data, sizeof(data));
+  sys_write(vmr_file, &data, sizeof(data));
 
   return vmrs_count - 1;
 }
@@ -409,7 +409,7 @@ static void dump_vmr(uintptr_t vaddr, const vmr_t* vmr)
     .vaddr = vaddr,
     .id = vmr_insert(vmr),
   };
-  write(vmap_file, &record, sizeof(record));
+  sys_write(vmap_file, &record, sizeof(record));
 }
 
 // Dumps page and VMR.
@@ -447,10 +447,10 @@ static void dump_memory()
   dump_page_table(clear_ad);
 
   // close files
-  close(page_file);
-  close(vmr_file);
-  close(pmap_file);
-  close(vmap_file);
+  sys_close(page_file);
+  sys_close(vmr_file);
+  sys_close(pmap_file);
+  sys_close(vmap_file);
 }
 
 // Performs checkpoint operation.
@@ -478,7 +478,7 @@ void slicer_init()
 
   // initialize checkpoint directory
   if (checkpoint_dir) {
-    dir_fd = openat(AT_FDCWD, checkpoint_dir, O_DIRECTORY, 0);
+    dir_fd = sys_openat(AT_FDCWD, checkpoint_dir, O_DIRECTORY, 0);
     if (dir_fd < 0)
       panic("failed to open checkpoint directory: %s", checkpoint_dir);
   } else {
