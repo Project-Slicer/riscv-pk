@@ -104,7 +104,7 @@ typedef struct {
 static int page_file, vmr_file, pmap_file, vmap_file;
 static size_t page_index;
 #define MAX_VMRS 128
-static vmr_t* vmrs[MAX_VMRS];
+static vmr_t const* vmrs[MAX_VMRS];
 static size_t vmrs_count;
 
 // Wrapper of system call `openat`.
@@ -196,7 +196,7 @@ static void dump_platinfo()
 {
   platinfo_t platinfo = {
     .magic = {'p', 'i'},
-#ifdef __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
     .endian = 0,
 #else
     .endian = 1,
@@ -378,7 +378,7 @@ static void dump_page(uintptr_t vaddr, const void* page)
 }
 
 // Inserts the given VMR object to the VMR list, returns the index of the VMR object.
-static size_t vmr_insert(vmr_t* vmr)
+static size_t vmr_insert(const vmr_t* vmr)
 {
   for (size_t count = vmrs_count; count > 0; count--) {
     size_t index = count - 1;
@@ -502,5 +502,8 @@ void slicer_syscall_handler(const void* tf)
   if ((rdcycle64() - last_checkpoint_cycle) / (CLOCK_FREQ / 1000) >= checkpoint_interval) {
     do_checkpoint((const trapframe_t*)tf);
     last_checkpoint_cycle = rdcycle64();
+
+    // TODO: remove
+    panic("checkpointed");
   }
 }
