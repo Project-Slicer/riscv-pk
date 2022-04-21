@@ -9,11 +9,16 @@
 #include "boot.h"
 #include "fp_emulation.h"
 #include <stdint.h>
-#include <unistd.h>
-#include <fcntl.h>
 #include <string.h>
 #include <stdbool.h>
 #include <sys/param.h>
+
+// Macros in fcntl.h.
+#define O_WRONLY    00000001
+#define O_CREAT     00000100
+#define O_TRUNC     00001000
+#define O_DIRECTORY 00200000
+#define F_GETFL     3
 
 size_t checkpoint_interval; // set by -c flag, milliseconds
 const char* checkpoint_dir; // set by -d flag
@@ -499,7 +504,7 @@ void slicer_syscall_handler(const void* tf)
 
   // perform checkpoint
   kassert(CLOCK_FREQ % 1000 == 0);
-  if ((rdcycle64() - last_checkpoint_cycle) / (CLOCK_FREQ / 1000) >= checkpoint_interval) {
+  if ((rdcycle64() - last_checkpoint_cycle) / (CLOCK_FREQ / 10000) >= checkpoint_interval) {
     do_checkpoint((const trapframe_t*)tf);
     last_checkpoint_cycle = rdcycle64();
 
