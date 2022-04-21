@@ -247,6 +247,7 @@ void rest_of_boot_loader_2(uintptr_t kstack_top)
   current.phdr_size = sizeof(phdrs);
   load_elf(args.argv[0], &current);
 
+  slicer_init();
   run_loaded_program(argc, args.argv, kstack_top);
 }
 
