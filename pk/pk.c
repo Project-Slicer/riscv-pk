@@ -29,7 +29,7 @@ static void help()
   printk("  -d <directory>        Specify the directory of checkpoint dumps,\n"
          "                        default to the current working directory\n");
   printk("  --compress            Compress memory dump\n");
-  printk("  -r <checkpoint>       Restore from the given checkpoint file\n");
+  printk("  -r <checkpoint>       Restore from the given checkpoint directory\n");
 
   shutdown(0);
 }
@@ -91,7 +91,7 @@ static size_t handle_option(const char** arg, bool last_arg)
       printk("-c must not be specified before -r\n");
       suggest_help();
     }
-    restore_file = arg[1];
+    restore_dir = arg[1];
     return 2;
   }
 
@@ -238,17 +238,23 @@ void rest_of_boot_loader_2(uintptr_t kstack_top)
 
   static arg_buf args; // avoid large stack allocation
   size_t argc = parse_args(&args);
-  if (!argc)
-    panic("tell me what ELF to load!");
 
-  // load program named by argv[0]
-  static long phdrs[128]; // avoid large stack allocation
-  current.phdr = (uintptr_t)phdrs;
-  current.phdr_size = sizeof(phdrs);
-  load_elf(args.argv[0], &current);
+  if (restore_dir) {
+    // restore from the given checkpoint
+    slicer_restore(kstack_top);
+  } else {
+    if (!argc)
+      panic("tell me what ELF to load!");
 
-  slicer_init();
-  run_loaded_program(argc, args.argv, kstack_top);
+    // load program named by argv[0]
+    static long phdrs[128]; // avoid large stack allocation
+    current.phdr = (uintptr_t)phdrs;
+    current.phdr_size = sizeof(phdrs);
+    load_elf(args.argv[0], &current);
+
+    slicer_init();
+    run_loaded_program(argc, args.argv, kstack_top);
+  }
 }
 
 void boot_loader(uintptr_t dtb)
