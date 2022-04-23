@@ -14,6 +14,7 @@
 #include <sys/param.h>
 
 // Macros in fcntl.h.
+#define O_RDONLY    00000000
 #define O_WRONLY    00000001
 #define O_CREAT     00000100
 #define O_TRUNC     00001000
@@ -157,13 +158,25 @@ static inline int sys_fcntl(int fd, int cmd, int arg)
   return frontend_syscall(SYS_fcntl, fd, cmd, arg, 0, 0, 0, 0);
 }
 
-// Opens and creates a write-only file at the checkpoint directory, or panics if it fails.
-static inline int open_assert(const char* path)
+// Opens a file at the checkpoint directory, or panics if it fails.
+static inline int open_assert(const char* path, int flag)
 {
-  int fd = sys_openat(dir_fd, path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  int fd = sys_openat(dir_fd, path, flag, 0644);
   if (fd < 0)
     panic("failed to open: %s", path);
   return fd;
+}
+
+// Opens a read-only file at the checkpoint directory, or panics if it fails.
+static inline int openr_assert(const char* path)
+{
+  return open_assert(path, O_RDONLY);
+}
+
+// Opens and creates a write-only file at the checkpoint directory, or panics if it fails.
+static inline int openw_assert(const char* path)
+{
+  return open_assert(path, O_WRONLY | O_CREAT | O_TRUNC);
 }
 
 // Creates a directory at the checkpoint directory if it does not exist, or panics if it fails.
@@ -211,7 +224,7 @@ static void dump_platinfo()
     .major = PLATINFO_MAJOR,
     .minor = PLATINFO_MINOR,
   };
-  int fd = open_assert("platinfo");
+  int fd = openw_assert("platinfo");
   sys_write(fd, &platinfo, sizeof(platinfo));
   sys_close(fd);
 }
@@ -234,7 +247,7 @@ static void dump_current()
     .stack_top = current.stack_top,
     .vm_alloc_guess = current.vm_alloc_guess,
   };
-  int fd = open_assert("current");
+  int fd = openw_assert("current");
   sys_write(fd, &cur, sizeof(cur));
   sys_close(fd);
 }
@@ -247,7 +260,7 @@ static void dump_counter()
     .cycle = rdcycle64(),
     .instret = rdinstret64(),
   };
-  int fd = open_assert("counter");
+  int fd = openw_assert("counter");
   sys_write(fd, &counter, sizeof(counter));
   sys_close(fd);
 }
@@ -255,7 +268,7 @@ static void dump_counter()
 // Dumps trapframe.
 static void dump_trapframe(const trapframe_t* tf)
 {
-  int fd = open_assert("tf");
+  int fd = openw_assert("tf");
   sys_write(fd, tf, sizeof(*tf));
   sys_close(fd);
 }
@@ -282,7 +295,7 @@ static void dump_fpregs()
 # undef get_fp_reg
 #endif
 
-  int fd = open_assert("fpregs");
+  int fd = openw_assert("fpregs");
   sys_write(fd, &fpregs, sizeof(fpregs));
   sys_close(fd);
 }
@@ -326,7 +339,7 @@ static void dump_kfd(file_t* file)
     return;
 
   // dump kfd data
-  int fd = open_assert(dump_path);
+  int fd = openw_assert(dump_path);
   kfd_t data = {
     .offset = sys_lseek(kfd, 0, SEEK_CUR),
     .flags = sys_fcntl(kfd, F_GETFL, 0),
@@ -346,7 +359,7 @@ static void dump_files()
   uint32_t length, index;
 
   // dump file object data
-  int obj = open_assert("file/obj");
+  int obj = openw_assert("file/obj");
   length = MAX_FILES;
   sys_write(obj, &length, sizeof(length));
   for (size_t i = 0; i < MAX_FILES; i++) {
@@ -361,7 +374,7 @@ static void dump_files()
   sys_close(obj);
 
   // dump file descriptors
-  int fd = open_assert("file/fd");
+  int fd = openw_assert("file/fd");
   length = MAX_FDS;
   sys_write(fd, &length, sizeof(length));
   for (size_t i = 0; i < MAX_FDS; i++) {
@@ -440,10 +453,10 @@ static void dump_memory()
 {
   // create files
   mkdir_assert("mem");
-  page_file = open_assert("mem/page");
-  vmr_file = open_assert("mem/vmr");
-  pmap_file = open_assert("mem/pmap");
-  vmap_file = open_assert("mem/vmap");
+  page_file = openw_assert("mem/page");
+  vmr_file = openw_assert("mem/vmr");
+  pmap_file = openw_assert("mem/pmap");
+  vmap_file = openw_assert("mem/vmap");
 
   // dump pages and VMRs
   page_index = vmrs_count = 0;
@@ -492,7 +505,7 @@ void slicer_init()
   }
 
   // initialize syscall trace file
-  syscall_trace_fd = open_assert("strace");
+  syscall_trace_fd = openw_assert("strace");
 }
 
 void slicer_syscall_handler(const void* tf)
