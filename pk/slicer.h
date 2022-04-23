@@ -12,5 +12,6 @@ extern const char* restore_file;
 
 void slicer_init();
 void slicer_syscall_handler(const void* tf);
+void slicer_restore(uintptr_t kstack_top);
 
 #endif
