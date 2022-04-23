@@ -372,11 +372,11 @@ static void dump_files()
 }
 
 // Dumps page.
-static void dump_page(uintptr_t vaddr, const void* page)
+static void dump_page(uintptr_t vaddr, const pte_t* pte, const void* page)
 {
   sys_write(page_file, page, RISCV_PGSIZE);
   map_record_t record = {
-    .vaddr = vaddr,
+    .vaddr = vaddr | (*pte & ((1 << PTE_PPN_SHIFT) - 1)),
     .id = page_index++,
   };
   sys_write(pmap_file, &record, sizeof(record));
@@ -423,7 +423,7 @@ static void dump_page_vmr(uintptr_t vaddr, pte_t* pte, const void* p, int is_vmr
   if (is_vmr)
     dump_vmr(vaddr, p);
   else
-    dump_page(vaddr, p);
+    dump_page(vaddr, pte, p);
 }
 
 // Clears the A-bit and D-bit of the page table entry.
