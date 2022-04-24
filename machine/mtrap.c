@@ -99,6 +99,23 @@ static uintptr_t mcall_set_timer(uint64_t when)
   return 0;
 }
 
+static uintptr_t mcall_set_counter(uint64_t time, uint64_t cycle, uint64_t instret)
+{
+  *mtime = time;
+#if __riscv_xlen == 32
+  write_csr(mcycle, 0);
+  write_csr(mcycleh, cycle >> 32);
+  write_csr(mcycle, cycle & 0xffffffff);
+  write_csr(minstret, 0);
+  write_csr(minstreth, instret >> 32);
+  write_csr(minstret, instret & 0xffffffff);
+#else
+  write_csr(mcycle, cycle);
+  write_csr(minstret, instret);
+#endif
+  return 0;
+}
+
 static void send_ipi_many(uintptr_t* pmask, int event)
 {
   _Static_assert(MAX_HARTS <= 8 * sizeof(*pmask), "# harts > uintptr_t bits");
@@ -168,6 +185,16 @@ send_ipi:
 #else
       retval = mcall_set_timer(arg0);
 #endif
+      break;
+    case SBI_FEXT_SET_COUNTER:
+#if __riscv_xlen == 32
+      uint64_t time = arg0 + ((uint64_t)arg1 << 32);
+      uint64_t cycle = reg[12] + ((uint64_t)reg[13] << 32);
+      uint64_t instret = reg[14] + ((uint64_t)reg[15] << 32);
+#else
+      uint64_t time = arg0, cycle = arg1, instret = reg[12];
+#endif
+      retval = mcall_set_counter(time, cycle, instret);
       break;
     default:
       retval = -ENOSYS;

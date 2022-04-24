@@ -13,4 +13,7 @@
 #define SBI_REMOTE_SFENCE_VMA_ASID 7
 #define SBI_SHUTDOWN 8
 
+// Firmware specific SBI extensions.
+#define SBI_FEXT_SET_COUNTER 0x0affff00
+
 #endif
