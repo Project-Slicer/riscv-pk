@@ -100,6 +100,8 @@ typedef struct {
   size_t offset;
   uint32_t file;
   uint32_t prot;
+  uint32_t refcnt;
+  uint32_t __pad0;
 } vmr_data_t;
 
 // Physical/VMR mapping record.
@@ -393,13 +395,10 @@ static void dump_files()
   length = MAX_FILES;
   write_assert(obj, &length, sizeof(length));
   for (size_t i = 0; i < MAX_FILES; i++) {
-    if (files[i].refcnt) {
+    if (files[i].refcnt)
       dump_kfd(&files[i]);
-      index = files[i].kfd;
-    } else {
-      index = -1;
-    }
-    write_assert(obj, &index, sizeof(index));
+    write_assert(obj, &files[i].kfd, sizeof(files[i].kfd));
+    write_assert(obj, &files[i].refcnt, sizeof(files[i].refcnt));
   }
   sys_close(obj);
 
@@ -444,6 +443,7 @@ static size_t vmr_insert(const vmr_t* vmr)
     .offset = vmr->offset,
     .file = file_index(vmr->file),
     .prot = vmr->prot,
+    .refcnt = vmr->refcnt,
   };
   write_assert(vmr_file, &data, sizeof(data));
 
