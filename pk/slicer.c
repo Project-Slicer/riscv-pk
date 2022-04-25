@@ -638,6 +638,43 @@ static void restore_counter()
   }
 }
 
+// Restores trapframe.
+static void restore_trapframe(trapframe_t* tf)
+{
+  int fd = openr_assert("tf");
+  read_assert(fd, tf, sizeof(*tf));
+  sys_close(fd);
+}
+
+// Restores floating point registers.
+static void restore_fpregs()
+{
+  fpregs_t fpregs;
+  int fd = openr_assert("fpregs");
+  read_assert(fd, &fpregs, sizeof(fpregs));
+  sys_close(fd);
+
+#ifdef __riscv_flen
+# if __riscv_flen == 32
+#   define set_fp_reg(i, v) SET_F32_REG((i) << 3, 3, 0, (v))
+# else
+#   define set_fp_reg(i, v) SET_F64_REG((i) << 3, 3, 0, (v))
+# endif
+
+  if (fpregs.status) {
+    for (size_t i = 0; i < 32; i++)
+      set_fp_reg(i, fpregs.regs[i]);
+    write_csr(fcsr, fpregs.fcsr);
+  }
+
+# undef set_fp_reg
+#endif
+
+  size_t sstatus = read_csr(sstatus);
+  sstatus = (sstatus & ~SSTATUS_FS) | ((fpregs.status << 13) & SSTATUS_FS);
+  write_csr(sstatus, sstatus);
+}
+
 void slicer_restore(uintptr_t kstack_top)
 {
   // initialize restore directory
@@ -650,6 +687,11 @@ void slicer_restore(uintptr_t kstack_top)
     panic("invalid checkpoint, platform information mismatch");
   restore_current();
   restore_counter();
+  trapframe_t tf;
+  restore_trapframe(&tf);
+  restore_fpregs();
+
+  // TODO: system call trace
 
   // TODO
   panic("`slicer_restore` is not implemented");
