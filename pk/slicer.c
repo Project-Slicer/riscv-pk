@@ -8,6 +8,7 @@
 #include "mmap.h"
 #include "boot.h"
 #include "fp_emulation.h"
+#include "mcall.h"
 #include <stdint.h>
 #include <string.h>
 #include <stdbool.h>
@@ -126,6 +127,12 @@ static inline ssize_t sys_write(int fd, const void* buf, size_t count)
   return frontend_syscall(SYS_write, fd, kva2pa(buf), count, 0, 0, 0, 0);
 }
 
+// Wrapper of system call `read`.
+static inline ssize_t sys_read(int fd, void* buf, size_t count)
+{
+  return frontend_syscall(SYS_read, fd, kva2pa(buf), count, 0, 0, 0, 0);
+}
+
 // Wrapper of system call `close`.
 static inline int sys_close(int fd)
 {
@@ -198,6 +205,32 @@ static inline int getfdpath_assert(int fd, char* buf, size_t size)
   return len;
 }
 
+// Writes the given buffer to the file descriptor, or panics if it fails.
+static inline void write_assert(int fd, const void* buf, size_t count)
+{
+  ssize_t len = sys_write(fd, buf, count);
+  if (len < 0 || (size_t)len != count)
+    panic("failed to write to fd: %d", fd);
+}
+
+// Reads the given buffer from the file descriptor, or panics if it fails.
+static inline void read_assert(int fd, void* buf, size_t count)
+{
+  ssize_t len = sys_read(fd, buf, count);
+  if (len < 0 || (size_t)len != count)
+    panic("failed to read from fd: %d", fd);
+}
+
+// Returns the endianness of the current machine, 0 for little endian, 1 for big endian.
+static inline int get_endianness()
+{
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+  return 0;
+#else
+  return 1;
+#endif
+}
+
 // Traces system calls and dumps them to the trace file.
 static void trace_syscall(const trapframe_t* tf)
 {
@@ -206,7 +239,7 @@ static void trace_syscall(const trapframe_t* tf)
     strace.args[i] = tf->gpr[10 + i];
   strace.args[6] = tf->gpr[17];
   strace.epc = tf->epc;
-  sys_write(syscall_trace_fd, &strace, sizeof(strace));
+  write_assert(syscall_trace_fd, &strace, sizeof(strace));
 }
 
 // Dumps platform information.
@@ -214,18 +247,14 @@ static void dump_platinfo()
 {
   platinfo_t platinfo = {
     .magic = {'p', 'i'},
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-    .endian = 0,
-#else
-    .endian = 1,
-#endif
+    .endian = get_endianness(),
     .ptr_size = sizeof(void*),
     .page_size = RISCV_PGSIZE,
     .major = PLATINFO_MAJOR,
     .minor = PLATINFO_MINOR,
   };
   int fd = openw_assert("platinfo");
-  sys_write(fd, &platinfo, sizeof(platinfo));
+  write_assert(fd, &platinfo, sizeof(platinfo));
   sys_close(fd);
 }
 
@@ -248,7 +277,7 @@ static void dump_current()
     .vm_alloc_guess = current.vm_alloc_guess,
   };
   int fd = openw_assert("current");
-  sys_write(fd, &cur, sizeof(cur));
+  write_assert(fd, &cur, sizeof(cur));
   sys_close(fd);
 }
 
@@ -261,7 +290,7 @@ static void dump_counter()
     .instret = rdinstret64(),
   };
   int fd = openw_assert("counter");
-  sys_write(fd, &counter, sizeof(counter));
+  write_assert(fd, &counter, sizeof(counter));
   sys_close(fd);
 }
 
@@ -269,7 +298,7 @@ static void dump_counter()
 static void dump_trapframe(const trapframe_t* tf)
 {
   int fd = openw_assert("tf");
-  sys_write(fd, tf, sizeof(*tf));
+  write_assert(fd, tf, sizeof(*tf));
   sys_close(fd);
 }
 
@@ -296,7 +325,7 @@ static void dump_fpregs()
 #endif
 
   int fd = openw_assert("fpregs");
-  sys_write(fd, &fpregs, sizeof(fpregs));
+  write_assert(fd, &fpregs, sizeof(fpregs));
   sys_close(fd);
 }
 
@@ -345,8 +374,8 @@ static void dump_kfd(file_t* file)
     .flags = sys_fcntl(kfd, F_GETFL, 0),
     .path_len = path_len,
   };
-  sys_write(fd, &data, sizeof(data));
-  sys_write(fd, path_buf, path_len);
+  write_assert(fd, &data, sizeof(data));
+  write_assert(fd, path_buf, path_len);
   sys_close(fd);
 }
 
@@ -361,7 +390,7 @@ static void dump_files()
   // dump file object data
   int obj = openw_assert("file/obj");
   length = MAX_FILES;
-  sys_write(obj, &length, sizeof(length));
+  write_assert(obj, &length, sizeof(length));
   for (size_t i = 0; i < MAX_FILES; i++) {
     if (files[i].refcnt) {
       dump_kfd(&files[i]);
@@ -369,17 +398,17 @@ static void dump_files()
     } else {
       index = -1;
     }
-    sys_write(obj, &index, sizeof(index));
+    write_assert(obj, &index, sizeof(index));
   }
   sys_close(obj);
 
   // dump file descriptors
   int fd = openw_assert("file/fd");
   length = MAX_FDS;
-  sys_write(fd, &length, sizeof(length));
+  write_assert(fd, &length, sizeof(length));
   for (size_t i = 0; i < MAX_FDS; i++) {
     index = file_index(fds[i]);
-    sys_write(fd, &index, sizeof(index));
+    write_assert(fd, &index, sizeof(index));
   }
   sys_close(fd);
 }
@@ -387,12 +416,12 @@ static void dump_files()
 // Dumps page.
 static void dump_page(uintptr_t vaddr, const pte_t* pte, const void* page)
 {
-  sys_write(page_file, page, RISCV_PGSIZE);
+  write_assert(page_file, page, RISCV_PGSIZE);
   map_record_t record = {
     .vaddr = vaddr | (*pte & ((1 << PTE_PPN_SHIFT) - 1)),
     .id = page_index++,
   };
-  sys_write(pmap_file, &record, sizeof(record));
+  write_assert(pmap_file, &record, sizeof(record));
 }
 
 // Inserts the given VMR object to the VMR list, returns the index of the VMR object.
@@ -415,7 +444,7 @@ static size_t vmr_insert(const vmr_t* vmr)
     .file = file_index(vmr->file),
     .prot = vmr->prot,
   };
-  sys_write(vmr_file, &data, sizeof(data));
+  write_assert(vmr_file, &data, sizeof(data));
 
   return vmrs_count - 1;
 }
@@ -427,7 +456,7 @@ static void dump_vmr(uintptr_t vaddr, const vmr_t* vmr)
     .vaddr = vaddr,
     .id = vmr_insert(vmr),
   };
-  sys_write(vmap_file, &record, sizeof(record));
+  write_assert(vmap_file, &record, sizeof(record));
 }
 
 // Dumps page and VMR.
@@ -526,8 +555,102 @@ void slicer_syscall_handler(const void* tf)
   }
 }
 
+// Sets performance counters.
+static inline void set_counter(uint64_t time, uint64_t cycle, uint64_t instret)
+{
+  register size_t a7 asm("a7") = SBI_FEXT_SET_COUNTER;
+#if __riscv_xlen == 32
+  register uint32_t a0 asm("a0") = time & 0xffffffff;
+  register uint32_t a1 asm("a1") = time >> 32;
+  register uint32_t a2 asm("a2") = cycle & 0xffffffff;
+  register uint32_t a3 asm("a3") = cycle >> 32;
+  register uint32_t a4 asm("a4") = instret & 0xffffffff;
+  register uint32_t a5 asm("a5") = instret >> 32;
+  asm volatile("ecall\n\t"
+               : "+r"(a0)
+               : "r"(a7), "r"(a1), "r"(a2), "r"(a3), "r"(a4), "r"(a5)
+               : "memory");
+#else
+  register uint64_t a0 asm("a0") = time;
+  register uint64_t a1 asm("a1") = cycle;
+  register uint64_t a2 asm("a2") = instret;
+  asm volatile("ecall\n\t" : "+r"(a0) : "r"(a7), "r"(a1), "r"(a2) : "memory");
+#endif
+}
+
+// Checks platform information, returns true if the platform is supported.
+static bool check_platinfo()
+{
+  platinfo_t platinfo;
+  int fd = openr_assert("platinfo");
+  read_assert(fd, &platinfo, sizeof(platinfo));
+  sys_close(fd);
+
+  if (platinfo.magic[0] != 'p' || platinfo.magic[1] != 'i')
+    return false;
+  if (platinfo.endian != get_endianness())
+    return false;
+  if (platinfo.ptr_size != sizeof(void*))
+    return false;
+  if (platinfo.page_size != RISCV_PGSIZE)
+    return false;
+  if (platinfo.major > PLATINFO_MAJOR || platinfo.minor > PLATINFO_MINOR)
+    return false;
+  return true;
+}
+
+// Restores current executable's information.
+static void restore_current()
+{
+  current_t cur;
+  int fd = openr_assert("current");
+  read_assert(fd, &cur, sizeof(cur));
+  sys_close(fd);
+
+  current.phent = cur.phent;
+  current.phnum = cur.phnum;
+  current.is_supervisor = cur.is_supervisor;
+  current.phdr = cur.phdr;
+  current.phdr_size = cur.phdr_size;
+  current.bias = cur.bias;
+  current.entry = cur.entry;
+  current.brk_min = cur.brk_min;
+  current.brk = cur.brk;
+  current.brk_max = cur.brk_max;
+  current.mmap_max = cur.mmap_max;
+  current.stack_top = cur.stack_top;
+  current.vm_alloc_guess = cur.vm_alloc_guess;
+}
+
+// Restores performance counters.
+static void restore_counter()
+{
+  counter_t counter;
+  int fd = openr_assert("counter");
+  read_assert(fd, &counter, sizeof(counter));
+  sys_close(fd);
+
+  set_counter(counter.time, counter.cycle, counter.instret);
+  if (current.cycle0) {
+    current.time0 = counter.time;
+    current.cycle0 = counter.cycle;
+    current.instret0 = counter.instret;
+  }
+}
+
 void slicer_restore(uintptr_t kstack_top)
 {
+  // initialize restore directory
+  dir_fd = sys_openat(AT_FDCWD, restore_dir, O_DIRECTORY, 0);
+  if (dir_fd < 0)
+    panic("failed to open checkpoint directory: %s", restore_dir);
+
+  // restore global information
+  if (!check_platinfo())
+    panic("invalid checkpoint, platform information mismatch");
+  restore_current();
+  restore_counter();
+
   // TODO
   panic("`slicer_restore` is not implemented");
 }
