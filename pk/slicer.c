@@ -9,6 +9,7 @@
 #include "boot.h"
 #include "fp_emulation.h"
 #include "mcall.h"
+#include "flush_icache.h"
 #include <stdint.h>
 #include <string.h>
 #include <stdbool.h>
@@ -675,6 +676,16 @@ static void restore_fpregs()
   write_csr(sstatus, sstatus);
 }
 
+static void restore_files()
+{
+  // TODO
+}
+
+static void restore_memory()
+{
+  // TODO
+}
+
 void slicer_restore(uintptr_t kstack_top)
 {
   // initialize restore directory
@@ -691,8 +702,15 @@ void slicer_restore(uintptr_t kstack_top)
   restore_trapframe(&tf);
   restore_fpregs();
 
+  // restore file objects
+  restore_files();
+  // restore memory
+  restore_memory();
+
   // TODO: system call trace
 
-  // TODO
-  panic("`slicer_restore` is not implemented");
+  // TODO: remove if supports microarchitecture state restore
+  __riscv_flush_icache();
+  write_csr(sscratch, kstack_top);
+  start_user(&tf);
 }
