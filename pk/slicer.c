@@ -104,15 +104,14 @@ typedef struct {
   uint32_t __pad0;
 } vmr_data_t;
 
-// Physical/VMR mapping record.
+// VMR mapping record.
 typedef struct {
   size_t vaddr;
   size_t id;
-} map_record_t;
+} vmap_record_t;
 
 // For memory dump.
 static int page_file, vmr_file, pmap_file, vmap_file;
-static size_t page_index;
 #define MAX_VMRS 128
 static vmr_t const* vmrs[MAX_VMRS];
 static size_t vmrs_count;
@@ -413,11 +412,8 @@ static void dump_files()
 static void dump_page(uintptr_t vaddr, const pte_t* pte, const void* page)
 {
   write_assert(page_file, page, RISCV_PGSIZE);
-  map_record_t record = {
-    .vaddr = vaddr | (*pte & ((1 << PTE_PPN_SHIFT) - 1)),
-    .id = page_index++,
-  };
-  write_assert(pmap_file, &record, sizeof(record));
+  size_t vaddr_type = vaddr | (*pte & ((1 << PTE_PPN_SHIFT) - 1));
+  write_assert(pmap_file, &vaddr_type, sizeof(vaddr_type));
 }
 
 // Inserts the given VMR object to the VMR list, returns the index of the VMR object.
@@ -449,7 +445,7 @@ static size_t vmr_insert(const vmr_t* vmr)
 // Dumps VMR.
 static void dump_vmr(uintptr_t vaddr, const vmr_t* vmr)
 {
-  map_record_t record = {
+  vmap_record_t record = {
     .vaddr = vaddr,
     .id = vmr_insert(vmr),
   };
@@ -485,7 +481,7 @@ static void dump_memory()
   vmap_file = openw_assert("mem/vmap");
 
   // dump pages and VMRs
-  page_index = vmrs_count = 0;
+  vmrs_count = 0;
   dump_page_table(dump_page_vmr);
   // clear A-bit and D-bit of page table entries
   dump_page_table(clear_ad);
@@ -728,10 +724,86 @@ static void restore_files()
   sys_close(fd);
 }
 
+// Restores pages.
+static void restore_pages()
+{
+  int pmap_fd = openr_assert("mem/pmap");
+  int page_fd = openr_assert("mem/page");
+
+  for (;;) {
+    size_t vaddr_type;
+    ssize_t n = sys_read(pmap_fd, &vaddr_type, sizeof(vaddr_type));
+    if (n < 0)
+      panic("failed to read physical memory map");
+    if (n == 0)
+      break;
+
+    uintptr_t page = __page_alloc_assert();
+    read_assert(page_fd, (void*)pa2kva(page), RISCV_PGSIZE);
+    insert_page(vaddr_type & ~((1 << RISCV_PGSHIFT) - 1), page,
+                vaddr_type & ((1 << PTE_PPN_SHIFT) - 1));
+  }
+
+  sys_close(pmap_fd);
+  sys_close(page_fd);
+}
+
+// Restores VMRs.
+static void restore_vmrs()
+{
+  int vmr_fd = openr_assert("mem/vmr");
+
+  vmrs_count = 0;
+  for (;;) {
+    vmr_data_t data;
+    ssize_t n = sys_read(vmr_fd, &data, sizeof(data));
+    if (n < 0)
+      panic("failed to read VMR object");
+    if (n == 0)
+      break;
+
+    file_t* file;
+    if (data.file == -1) {
+      file = NULL;
+    } else if (data.file >= MAX_FILES) {
+      panic("invalid file object index");
+    } else {
+      file = &files[data.file];
+    }
+    vmrs[vmrs_count++] = new_vmr(data.addr, data.length, file, data.offset,
+                                 data.refcnt, data.prot);
+  }
+
+  sys_close(vmr_fd);
+}
+
+// Restores VMR mapping.
+static void restore_vmr_map()
+{
+  int vmap_fd = openr_assert("mem/vmap");
+
+  for (;;) {
+    vmap_record_t record;
+    ssize_t n = sys_read(vmap_fd, &record, sizeof(record));
+    if (n < 0)
+      panic("failed to read VMR mapping");
+    if (n == 0)
+      break;
+
+    if (record.id >= vmrs_count)
+      panic("invalid VMR object index");
+    insert_vmr(record.vaddr, vmrs[record.id]);
+  }
+
+  sys_close(vmap_fd);
+}
+
 // Restores memory.
 static void restore_memory()
 {
-  // TODO
+  restore_pages();
+  restore_vmrs();
+  restore_vmr_map();
 }
 
 void slicer_restore(uintptr_t kstack_top)
@@ -749,7 +821,6 @@ void slicer_restore(uintptr_t kstack_top)
   trapframe_t tf;
   restore_trapframe(&tf);
   restore_fpregs();
-
   // restore file objects
   restore_files();
   // restore memory
