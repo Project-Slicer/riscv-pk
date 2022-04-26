@@ -234,8 +234,6 @@ rest_of_boot_loader:\n\
 
 void rest_of_boot_loader_2(uintptr_t kstack_top)
 {
-  file_init();
-
   static arg_buf args; // avoid large stack allocation
   size_t argc = parse_args(&args);
 
@@ -245,6 +243,7 @@ void rest_of_boot_loader_2(uintptr_t kstack_top)
   } else {
     if (!argc)
       panic("tell me what ELF to load!");
+    file_init();
 
     // load program named by argv[0]
     static long phdrs[128]; // avoid large stack allocation
