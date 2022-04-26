@@ -90,8 +90,8 @@ typedef struct {
 } kfd_t;
 
 // For kernel file descriptor dump.
-static bool kfd_visited[MAX_FILES];
-static char path_buf[PATH_MAX];
+static char kfd_path[PATH_MAX];
+static char kfd_dump_path[sizeof("file/kfd/0123456789")];
 
 // VMR object data.
 typedef struct {
@@ -338,47 +338,44 @@ static inline uint32_t file_index(file_t* file)
   return file ? (uint32_t)(file - files) : -1;
 }
 
+// Gets kfd dump path by the given kfd.
+static const char *get_kfd_dump_path(int kfd)
+{
+  // get path of the kfd dump file
+  int ret = snprintf(kfd_dump_path, sizeof(kfd_dump_path), "file/kfd/%d", kfd);
+  if (ret < 0 || (size_t)ret >= sizeof(kfd_dump_path))
+    panic("failed to get path of kfd dump file");
+  return kfd_dump_path;
+}
+
 // Checks if the given path represents a device file.
 static bool is_dev_file(const char* path, size_t len)
 {
   const char dev[] = "/dev/";
   if (len >= sizeof(dev) - 1)
     for (size_t i = 0; i < sizeof(dev) - 1; i++)
-      if (path_buf[i] != dev[i])
+      if (kfd_path[i] != dev[i])
         return false;
   return true;
 }
 
 // Dumps kernel file descriptor.
-static void dump_kfd(file_t* file)
+static void dump_kfd(int kfd)
 {
-  // check if the kfd has already been dumped
-  uint32_t index = file_index(file);
-  if (kfd_visited[index])
-    return;
-  kfd_visited[index] = true;
-  int kfd = file->kfd;
-
-  // get path of the kfd dump file
-  char dump_path[sizeof("file/kfd/0123456789")];
-  int ret = snprintf(dump_path, sizeof(dump_path), "file/kfd/%d", kfd);
-  if (ret < 0 || (size_t)ret >= sizeof(dump_path))
-    panic("failed to get path of kfd dump file");
-
   // get path of the kfd
-  uint32_t path_len = getfdpath_assert(kfd, path_buf, sizeof(path_buf));
-  if (is_dev_file(path_buf, path_len))
+  uint32_t path_len = getfdpath_assert(kfd, kfd_path, sizeof(kfd_path));
+  if (is_dev_file(kfd_path, path_len))
     return;
 
   // dump kfd data
-  int fd = openw_assert(dump_path);
+  int fd = openw_assert(get_kfd_dump_path(kfd));
   kfd_t data = {
     .offset = sys_lseek(kfd, 0, SEEK_CUR),
     .flags = sys_fcntl(kfd, F_GETFL, 0),
     .path_len = path_len,
   };
   write_assert(fd, &data, sizeof(data));
-  write_assert(fd, path_buf, path_len);
+  write_assert(fd, kfd_path, path_len);
   sys_close(fd);
 }
 
@@ -387,7 +384,6 @@ static void dump_files()
 {
   mkdir_assert("file");
   mkdir_assert("file/kfd");
-  memset(kfd_visited, 0, sizeof(kfd_visited));
   uint32_t length, index;
 
   // dump file object data
@@ -396,7 +392,7 @@ static void dump_files()
   write_assert(obj, &length, sizeof(length));
   for (size_t i = 0; i < MAX_FILES; i++) {
     if (files[i].refcnt)
-      dump_kfd(&files[i]);
+      dump_kfd(files[i].kfd);
     write_assert(obj, &files[i].kfd, sizeof(files[i].kfd));
     write_assert(obj, &files[i].refcnt, sizeof(files[i].refcnt));
   }
@@ -676,11 +672,63 @@ static void restore_fpregs()
   write_csr(sstatus, sstatus);
 }
 
-static void restore_files()
+// Restores kernel file descriptor.
+static int restore_kfd(int kfd)
 {
-  // TODO
+  int fd = sys_openat(dir_fd, get_kfd_dump_path(kfd), O_RDONLY, 0);
+  if (fd < 0) {
+    // must be stdin, stdout, or stderr
+    kassert(kfd >= 0 && kfd <= 2);
+    return kfd;
+  }
+
+  kfd_t data;
+  read_assert(fd, &data, sizeof(data));
+  read_assert(fd, kfd_path, data.path_len);
+  sys_close(fd);
+
+  kfd_path[data.path_len] = '\0';
+  int new_kfd = sys_openat(AT_FDCWD, kfd_path, data.flags, 0644);
+  if (new_kfd < 0)
+    panic("failed to open: %s, kfd: %d", kfd_path, kfd);
+  return new_kfd;
 }
 
+// Restores file objects.
+static void restore_files()
+{
+  uint32_t length, index;
+
+  // restore file object data
+  int obj = openr_assert("file/obj");
+  read_assert(obj, &length, sizeof(length));
+  if (length > MAX_FILES)
+    panic("file object array length exceeds MAX_FILES");
+  for (size_t i = 0; i < length; i++) {
+    read_assert(obj, &files[i].kfd, sizeof(files[i].kfd));
+    read_assert(obj, &files[i].refcnt, sizeof(files[i].refcnt));
+    if (files[i].refcnt)
+      files[i].kfd = restore_kfd(files[i].kfd);
+  }
+  sys_close(obj);
+
+  // restore file descriptors
+  int fd = openr_assert("file/fd");
+  read_assert(fd, &length, sizeof(length));
+  if (length > MAX_FDS)
+    panic("file descriptor array length exceeds MAX_FDS");
+  for (size_t i = 0; i < length; i++) {
+    read_assert(fd, &index, sizeof(index));
+    if (index == -1)
+      continue;
+    if (index >= MAX_FILES)
+      panic("invalid file object index");
+    fds[i] = &files[index];
+  }
+  sys_close(fd);
+}
+
+// Restores memory.
 static void restore_memory()
 {
   // TODO
@@ -709,7 +757,7 @@ void slicer_restore(uintptr_t kstack_top)
 
   // TODO: system call trace
 
-  // TODO: remove if supports microarchitecture state restore
+  // TODO: remove if supports microarchitectural state restoration
   __riscv_flush_icache();
   write_csr(sscratch, kstack_top);
   start_user(&tf);
