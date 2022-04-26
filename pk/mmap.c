@@ -125,7 +125,7 @@ static uintptr_t __page_alloc()
   return node.addr;
 }
 
-static uintptr_t __page_alloc_assert()
+uintptr_t __page_alloc_assert()
 {
   uintptr_t res = __page_alloc();
 
@@ -606,4 +606,29 @@ static void __dump_page_table(pte_t* t, int level, uintptr_t vaddr, dump_callbac
 void dump_page_table(dump_callback_t callback)
 {
   __dump_page_table(root_page_table, RISCV_PGLEVELS - 1, 0, callback);
+}
+
+void insert_page(uintptr_t vaddr, uintptr_t page, int type)
+{
+  pte_t* pte = __walk_create(vaddr);
+  kassert(pte && !*pte);
+  *pte = ppn(page) | type;
+  flush_tlb_entry(vaddr);
+}
+
+vmr_t* new_vmr(uintptr_t addr, size_t length, file_t* file, size_t offset, unsigned refcnt, int prot)
+{
+  // avoid increasing file object refcnt
+  vmr_t* v = __vmr_alloc(addr, length, NULL, offset, refcnt, prot);
+  kassert(v);
+  if (file)
+    v->file = file;
+  return v;
+}
+
+void insert_vmr(uintptr_t vaddr, vmr_t* vmr)
+{
+  pte_t* pte = __walk_create(vaddr);
+  kassert(pte && !*pte);
+  *pte = vmr;
 }

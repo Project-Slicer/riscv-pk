@@ -28,6 +28,7 @@ uintptr_t pk_vm_init();
 int handle_page_fault(uintptr_t vaddr, int prot);
 void populate_mapping(const void* start, size_t size, int prot);
 int __valid_user_range(uintptr_t vaddr, size_t len);
+uintptr_t __page_alloc_assert();
 uintptr_t __do_mmap(uintptr_t addr, size_t length, int prot, int flags, file_t* file, off_t offset);
 uintptr_t do_mmap(uintptr_t addr, size_t length, int prot, int flags, int fd, off_t offset);
 int do_munmap(uintptr_t addr, size_t length);
@@ -55,5 +56,8 @@ typedef struct vmr_t {
 
 typedef void (*dump_callback_t)(uintptr_t vaddr, pte_t* pte, const void* p, int is_vmr);
 void dump_page_table(dump_callback_t callback);
+void insert_page(uintptr_t vaddr, uintptr_t page, int type);
+vmr_t* new_vmr(uintptr_t addr, size_t length, file_t* file, size_t offset, unsigned refcnt, int prot);
+void insert_vmr(uintptr_t vaddr, vmr_t* vmr);
 
 #endif
