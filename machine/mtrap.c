@@ -186,16 +186,17 @@ send_ipi:
       retval = mcall_set_timer(arg0);
 #endif
       break;
-    case SBI_FEXT_SET_COUNTER:
+    case SBI_FEXT_SET_COUNTER: {
 #if __riscv_xlen == 32
       uint64_t time = arg0 + ((uint64_t)arg1 << 32);
-      uint64_t cycle = reg[12] + ((uint64_t)reg[13] << 32);
-      uint64_t instret = reg[14] + ((uint64_t)reg[15] << 32);
+      uint64_t cycle = regs[12] + ((uint64_t)regs[13] << 32);
+      uint64_t instret = regs[14] + ((uint64_t)regs[15] << 32);
 #else
-      uint64_t time = arg0, cycle = arg1, instret = reg[12];
+      uint64_t time = arg0, cycle = arg1, instret = regs[12];
 #endif
       retval = mcall_set_counter(time, cycle, instret);
       break;
+    }
     default:
       retval = -ENOSYS;
       break;

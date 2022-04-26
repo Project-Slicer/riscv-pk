@@ -58,6 +58,6 @@ typedef void (*dump_callback_t)(uintptr_t vaddr, pte_t* pte, const void* p, int 
 void dump_page_table(dump_callback_t callback);
 void insert_page(uintptr_t vaddr, uintptr_t page, int type);
 vmr_t* new_vmr(uintptr_t addr, size_t length, file_t* file, size_t offset, unsigned refcnt, int prot);
-void insert_vmr(uintptr_t vaddr, vmr_t* vmr);
+void insert_vmr(uintptr_t vaddr, const vmr_t* vmr);
 
 #endif

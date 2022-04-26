@@ -626,9 +626,9 @@ vmr_t* new_vmr(uintptr_t addr, size_t length, file_t* file, size_t offset, unsig
   return v;
 }
 
-void insert_vmr(uintptr_t vaddr, vmr_t* vmr)
+void insert_vmr(uintptr_t vaddr, const vmr_t* vmr)
 {
   pte_t* pte = __walk_create(vaddr);
   kassert(pte && !*pte);
-  *pte = vmr;
+  *pte = (pte_t)vmr;
 }

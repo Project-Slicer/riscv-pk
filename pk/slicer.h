@@ -4,6 +4,7 @@
 #define _PK_SLICER_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 extern size_t checkpoint_interval;
 extern const char* checkpoint_dir;
