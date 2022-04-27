@@ -29,6 +29,7 @@ static void help()
   printk("  -d <directory>        Specify the directory of checkpoint dumps,\n"
          "                        default to the current working directory\n");
   printk("  --compress            Compress memory dump\n");
+  printk("  --dump-file           Dump the contents of kfd-associated files\n");
   printk("  -r <checkpoint>       Restore from the given checkpoint directory\n");
 
   shutdown(0);
@@ -83,6 +84,15 @@ static size_t handle_option(const char** arg, bool last_arg)
       suggest_help();
     }
     compress_mem_dump = 1;
+    return 1;
+  }
+
+  if (strcmp(arg[0], "--dump-file") == 0) { // dump the contents of kfd-associated files
+    if (!checkpoint_interval) {
+      printk("-c must be specified before --dump-file\n");
+      suggest_help();
+    }
+    dump_file_contents = 1;
     return 1;
   }
 

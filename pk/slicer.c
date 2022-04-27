@@ -27,6 +27,7 @@
 size_t checkpoint_interval; // set by -c flag, milliseconds
 const char* checkpoint_dir; // set by -d flag
 int compress_mem_dump; // set by --compress flag
+int dump_file_contents; // set by --dump-file flag
 const char* restore_dir; // set by -r flag
 
 static uint64_t last_checkpoint_cycle;
