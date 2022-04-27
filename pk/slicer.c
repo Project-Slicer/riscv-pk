@@ -739,9 +739,10 @@ static void restore_pages()
       break;
 
     uintptr_t page = __page_alloc_assert();
+    uintptr_t vaddr = vaddr_type & ~((1 << RISCV_PGSHIFT) - 1);
+    int type = vaddr_type & ((1 << PTE_PPN_SHIFT) - 1);
     read_assert(page_fd, (void*)pa2kva(page), RISCV_PGSIZE);
-    insert_page(vaddr_type & ~((1 << RISCV_PGSHIFT) - 1), page,
-                vaddr_type & ((1 << PTE_PPN_SHIFT) - 1));
+    insert_page(vaddr, page, type);
   }
 
   sys_close(pmap_fd);
