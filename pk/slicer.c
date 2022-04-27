@@ -687,6 +687,7 @@ static int restore_kfd(int kfd)
   int new_kfd = sys_openat(AT_FDCWD, kfd_path, data.flags, 0644);
   if (new_kfd < 0)
     panic("failed to open: %s, kfd: %d", kfd_path, kfd);
+  sys_lseek(new_kfd, data.offset, SEEK_SET);
   return new_kfd;
 }
 
