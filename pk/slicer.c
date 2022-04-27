@@ -522,8 +522,8 @@ void slicer_init()
   if (checkpoint_dir) {
     dir_fd = sys_openat(AT_FDCWD, checkpoint_dir, O_DIRECTORY, 0);
     if (dir_fd == -ENOENT) {
-      dir_fd = AT_FDCWD;
-      mkdir_assert(checkpoint_dir);
+      if (sys_mkdirat(AT_FDCWD, checkpoint_dir, 0755) < 0)
+        panic("failed to create checkpoint directory: %s", checkpoint_dir);
       dir_fd = sys_openat(AT_FDCWD, checkpoint_dir, O_DIRECTORY, 0);
     }
     if (dir_fd < 0)
