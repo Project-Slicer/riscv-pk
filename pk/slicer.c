@@ -14,6 +14,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <sys/param.h>
+#include <errno.h>
 
 // Macros in fcntl.h.
 #define O_RDONLY    00000000
@@ -520,6 +521,11 @@ void slicer_init()
   // initialize checkpoint directory
   if (checkpoint_dir) {
     dir_fd = sys_openat(AT_FDCWD, checkpoint_dir, O_DIRECTORY, 0);
+    if (dir_fd == -ENOENT) {
+      dir_fd = AT_FDCWD;
+      mkdir_assert(checkpoint_dir);
+      dir_fd = sys_openat(AT_FDCWD, checkpoint_dir, O_DIRECTORY, 0);
+    }
     if (dir_fd < 0)
       panic("failed to open checkpoint directory: %s", checkpoint_dir);
   } else {
