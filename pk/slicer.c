@@ -545,7 +545,7 @@ void slicer_syscall_handler(const void* tf)
   trace_syscall((const trapframe_t*)tf);
 
   // perform checkpoint
-  if ((rdcycle64() - last_checkpoint_cycle) / (CLOCK_FREQ / 10000) >= checkpoint_interval) {
+  if ((rdcycle64() - last_checkpoint_cycle) / (CLOCK_FREQ / 1000) >= checkpoint_interval) {
     do_checkpoint((const trapframe_t*)tf);
     last_checkpoint_cycle = rdcycle64();
 
