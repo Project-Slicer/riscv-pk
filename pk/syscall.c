@@ -575,6 +575,21 @@ int sys_getdents(int fd, void* dirbuf, int count)
   return 0; //stub
 }
 
+ssize_t sys_sendfile(int out_fd, int in_fd, off_t* offset, size_t count)
+{
+  int out_kfd = at_kfd(out_fd);
+  int in_kfd = at_kfd(in_fd);
+  if (out_kfd == -1 || in_kfd == -1)
+    return -EBADF;
+
+  off_t koffset;
+  ssize_t r = frontend_syscall(SYS_sendfile, out_kfd, in_kfd, kva2pa(&koffset), count, 0, 0, 0);
+  if (r >= 0 && offset)
+    memcpy_to_user(offset, &koffset, sizeof(koffset));
+
+  return r;
+}
+
 static int sys_stub_success()
 {
   return 0;
@@ -630,6 +645,10 @@ long do_syscall(long a0, long a1, long a2, long a3, long a4, long a5, unsigned l
     [SYS_rt_sigprocmask] = sys_stub_success,
     [SYS_clock_gettime] = sys_clock_gettime,
     [SYS_chdir] = sys_chdir,
+    [SYS_set_tid_address] = sys_stub_nosys,
+    [SYS_set_robust_list] = sys_stub_nosys,
+    [SYS_madvise] = sys_stub_nosys,
+    [SYS_sendfile] = sys_sendfile,
   };
 
   const static void* old_syscall_table[] = {
