@@ -17,8 +17,10 @@
 #include <errno.h>
 
 // Macros in fcntl.h.
+#define O_ACCMODE   00000003
 #define O_RDONLY    00000000
 #define O_WRONLY    00000001
+#define O_RDWR      00000002
 #define O_CREAT     00000100
 #define O_TRUNC     00001000
 #define O_DIRECTORY 00200000
@@ -169,6 +171,18 @@ static inline int sys_fcntl(int fd, int cmd, int arg)
   return frontend_syscall(SYS_fcntl, fd, cmd, arg, 0, 0, 0, 0);
 }
 
+// Wrapper of system call `sendfile`.
+static inline ssize_t sys_sendfile(int out_fd, int in_fd, off_t* offset, size_t count)
+{
+  return frontend_syscall(SYS_sendfile, out_fd, in_fd, kva2pa(offset), count, 0, 0, 0);
+}
+
+// Wrapper of system call `fstat`.
+static inline int sys_fstat(int fd, struct frontend_stat* st)
+{
+  return frontend_syscall(SYS_fstat, fd, kva2pa(st), 0, 0, 0, 0, 0);
+}
+
 // Opens a file at the checkpoint directory, or panics if it fails.
 static inline int open_assert(const char* path, int flag)
 {
@@ -223,6 +237,20 @@ static inline void read_assert(int fd, void* buf, size_t count)
   ssize_t len = sys_read(fd, buf, count);
   if (len < 0 || (size_t)len != count)
     panic("failed to read from fd: %d", fd);
+}
+
+// Copies between two file descriptors, or panics if it fails.
+static void copy_assert(int dst_fd, int src_fd)
+{
+  struct frontend_stat st;
+  if (sys_fstat(src_fd, &st) < 0)
+    panic("failed to fstat: %d", src_fd);
+  off_t offset = 0;
+  while (offset < st.size) {
+    ssize_t len = sys_sendfile(dst_fd, src_fd, &offset, st.size - offset);
+    if (len < 0)
+      panic("failed to sendfile: %d", src_fd);
+  }
 }
 
 // Returns the endianness of the current machine, 0 for little endian, 1 for big endian.
@@ -353,11 +381,38 @@ static const char *get_kfd_dump_path(int kfd)
 static bool is_dev_file(const char* path, size_t len)
 {
   const char dev[] = "/dev/";
-  if (len >= sizeof(dev) - 1)
-    for (size_t i = 0; i < sizeof(dev) - 1; i++)
-      if (kfd_path[i] != dev[i])
-        return false;
-  return true;
+  if (len < sizeof(dev) - 1)
+    return false;
+  return memcmp(path, dev, sizeof(dev) - 1) == 0;
+}
+
+// Generates null-terminated path string of the file content dump file,
+// returns length of the path, panic if failed.
+static size_t gen_file_dump_path(int kfd, char* buf, size_t path_len, size_t buf_len)
+{
+  // get start index of the file name
+  size_t file_name_index = path_len;
+  while (file_name_index > 0 && kfd_path[file_name_index - 1] != '/')
+    file_name_index--;
+  size_t file_name_len = path_len - file_name_index;
+  
+  // move file name to free space for the prefix
+  const char prefix[] = "file/kfd/";
+  const size_t prefix_len = sizeof(prefix) - 1;
+  if (file_name_len + prefix_len >= buf_len)
+    panic("failed to generate file dump path");
+  memmove(buf + prefix_len, buf + file_name_index, file_name_len);
+
+  // copy prefix
+  memcpy(buf, prefix, prefix_len);
+
+  // append kfd
+  int ret = snprintf(buf + prefix_len + file_name_len,
+                     buf_len - prefix_len - file_name_len, ".%d", kfd);
+  if (ret < 0 || (size_t)ret >= buf_len - prefix_len - file_name_len)
+    panic("failed to generate file dump path");
+  
+  return prefix_len + file_name_len + ret;
 }
 
 // Dumps kernel file descriptor.
@@ -368,11 +423,23 @@ static void dump_kfd(int kfd)
   if (is_dev_file(kfd_path, path_len))
     return;
 
+  int flags = sys_fcntl(kfd, F_GETFL, 0);
+  if (dump_file_contents) {
+    // generate path of the file content dump file
+    path_len = gen_file_dump_path(kfd, kfd_path, path_len, sizeof(kfd_path));
+
+    // copy the content of kfd if it was opened for reading
+    int out_fd = openw_assert(kfd_path);
+    if ((flags & O_ACCMODE) == O_RDONLY || (flags & O_ACCMODE) == O_RDWR)
+      copy_assert(out_fd, kfd);
+    sys_close(out_fd);
+  }
+
   // dump kfd data
   int fd = openw_assert(get_kfd_dump_path(kfd));
   kfd_t data = {
     .offset = sys_lseek(kfd, 0, SEEK_CUR),
-    .flags = sys_fcntl(kfd, F_GETFL, 0),
+    .flags = flags,
     .path_len = path_len,
   };
   write_assert(fd, &data, sizeof(data));
@@ -691,9 +758,7 @@ static int restore_kfd(int kfd)
   sys_close(fd);
 
   kfd_path[data.path_len] = '\0';
-  int new_kfd = sys_openat(AT_FDCWD, kfd_path, data.flags, 0644);
-  if (new_kfd < 0)
-    panic("failed to open: %s, kfd: %d", kfd_path, kfd);
+  int new_kfd = open_assert(kfd_path, data.flags);
   sys_lseek(new_kfd, data.offset, SEEK_SET);
   return new_kfd;
 }
