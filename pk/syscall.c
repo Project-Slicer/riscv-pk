@@ -583,7 +583,12 @@ ssize_t sys_sendfile(int out_fd, int in_fd, off_t* offset, size_t count)
     return -EBADF;
 
   off_t koffset;
-  ssize_t r = frontend_syscall(SYS_sendfile, out_kfd, in_kfd, kva2pa(&koffset), count, 0, 0, 0);
+  uintptr_t koffsetp = 0;
+  if (offset) {
+    memcpy_from_user(&koffset, offset, sizeof(koffset));
+    koffsetp = kva2pa(&koffset);
+  }
+  ssize_t r = frontend_syscall(SYS_sendfile, out_kfd, in_kfd, koffsetp, count, 0, 0, 0);
   if (r >= 0 && offset)
     memcpy_to_user(offset, &koffset, sizeof(koffset));
 
