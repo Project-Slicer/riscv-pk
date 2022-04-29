@@ -47,6 +47,49 @@ void* memset(void* dest, int byte, size_t len)
   return dest;
 }
 
+void* memmove(void* dest, const void* src, size_t n)
+{
+  char* d = dest;
+  const char* s = src;
+
+  if (d == s) return d;
+  if ((uintptr_t)s - (uintptr_t)d - n <= -2 * n) return memcpy(d, s, n);
+
+  if (d < s) {
+    if ((uintptr_t)s % sizeof(uintptr_t) == (uintptr_t)d % sizeof(uintptr_t)) {
+      while ((uintptr_t)d % sizeof(uintptr_t)) {
+        if (!n--) return dest;
+        *d++ = *s++;
+      }
+      for (; n >= sizeof(uintptr_t); n -= sizeof(uintptr_t),
+                                     d += sizeof(uintptr_t),
+                                     s += sizeof(uintptr_t))
+        *(uintptr_t*)d = *(uintptr_t*)s;
+    }
+    for (; n; n--) *d++ = *s++;
+  } else {
+    if ((uintptr_t)s % sizeof(uintptr_t) == (uintptr_t)d % sizeof(uintptr_t)) {
+      while ((uintptr_t)(d + n) % sizeof(uintptr_t)) {
+        if (!n--) return dest;
+        d[n] = s[n];
+      }
+      while (n >= sizeof(uintptr_t))
+        n -= sizeof(uintptr_t), *(uintptr_t*)(d + n) = *(uintptr_t*)(s + n);
+    }
+    while (n) n--, d[n] = s[n];
+  }
+
+  return dest;
+}
+
+int memcmp(const void* vl, const void* vr, size_t n)
+{
+  const unsigned char *l = vl, *r = vr;
+  for (; n && *l == *r; n--, l++, r++)
+    ;
+  return n ? *l - *r : 0;
+}
+
 size_t strlen(const char *s)
 {
   const char *p = s;
