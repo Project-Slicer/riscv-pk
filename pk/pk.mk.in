@@ -15,6 +15,7 @@ pk_hdrs = \
 	syscall.h \
 	usermem.h \
 	slicer.h \
+	ksyscall.h \
 
 pk_c_srcs = \
 	file.c \
