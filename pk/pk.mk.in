@@ -17,6 +17,7 @@ pk_hdrs = \
 	slicer.h \
 	ksyscall.h \
 	dump.h \
+	checkpoint.h \
 
 pk_c_srcs = \
 	file.c \
@@ -28,6 +29,7 @@ pk_c_srcs = \
 	mmap.c \
 	usermem.c \
 	slicer.c \
+	checkpoint.c \
 
 pk_asm_srcs = \
 	entry.S \
