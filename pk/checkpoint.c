@@ -11,6 +11,7 @@
 #include "fp_emulation.h"
 #include "mcall.h"
 #include <sys/param.h>
+#include <string.h>
 #include <stdbool.h>
 
 // For kernel file descriptor dump.

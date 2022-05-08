@@ -3,7 +3,9 @@
 #include "slicer.h"
 #include "pk.h"
 #include "syscall.h"
+#include "flush_icache.h"
 #include "ksyscall.h"
+#include "checkpoint.h"
 #include <stdint.h>
 #include <errno.h>
 
