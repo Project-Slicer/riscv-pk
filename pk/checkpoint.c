@@ -338,7 +338,8 @@ static void dump_memory()
   vmrs_count = 0;
   dump_page_table(dump_page_vmr);
   // clear A-bit and D-bit of page table entries
-  dump_page_table(clear_ad);
+  if (compress_mem_dump)
+    dump_page_table(clear_ad);
 
   // close files
   sys_close(page_file);
