@@ -14,6 +14,7 @@ extern const char* restore_dir;
 
 void slicer_init();
 void slicer_syscall_handler(const void* tf);
+void slicer_syscall_post_handler(const void* tf);
 
 // Restores from a checkpoint.
 // This function must be called at initialization time, and only once.

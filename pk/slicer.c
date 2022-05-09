@@ -53,10 +53,7 @@ static inline bool should_checkpoint(const trapframe_t* tf)
   bool meet_interval =
       (rdcycle64() - last_checkpoint_cycle) / (CLOCK_FREQ / 1000) >=
       checkpoint_interval;
-  bool is_file_mod = dump_file_contents && tf->gpr[17] == SYS_close;
-  bool is_mem_mod = compress_mem_dump &&
-                    (tf->gpr[17] == SYS_mmap || tf->gpr[17] == SYS_munmap);
-  return meet_interval || is_file_mod || is_mem_mod;
+  return meet_interval;
 }
 
 void slicer_syscall_handler(const void* tf)
@@ -75,6 +72,11 @@ void slicer_syscall_handler(const void* tf)
     // TODO: remove
     panic("checkpointed");
   }
+}
+
+void slicer_syscall_post_handler(const void* tf)
+{
+  // TODO
 }
 
 void slicer_restore(uintptr_t kstack_top)
