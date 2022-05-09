@@ -8,6 +8,7 @@
 #include "checkpoint.h"
 #include <stdint.h>
 #include <errno.h>
+#include <stdbool.h>
 
 size_t checkpoint_interval; // set by -c flag, milliseconds
 const char* checkpoint_dir; // set by -d flag
@@ -46,6 +47,18 @@ void slicer_init()
   strace_fd = openw_assert("strace");
 }
 
+// Checks if it's time to checkpoint.
+static inline bool should_checkpoint(const trapframe_t* tf)
+{
+  bool meet_interval =
+      (rdcycle64() - last_checkpoint_cycle) / (CLOCK_FREQ / 1000) >=
+      checkpoint_interval;
+  bool is_file_mod = dump_file_contents && tf->gpr[17] == SYS_close;
+  bool is_mem_mod = compress_mem_dump &&
+                    (tf->gpr[17] == SYS_mmap || tf->gpr[17] == SYS_munmap);
+  return meet_interval || is_file_mod || is_mem_mod;
+}
+
 void slicer_syscall_handler(const void* tf)
 {
   // skip if checkpointing is disabled
@@ -55,7 +68,7 @@ void slicer_syscall_handler(const void* tf)
   trace_syscall(strace_fd, tf);
 
   // perform checkpoint
-  if ((rdcycle64() - last_checkpoint_cycle) / (CLOCK_FREQ / 1000) >= checkpoint_interval) {
+  if (should_checkpoint(tf)) {
     do_checkpoint(tf);
     last_checkpoint_cycle = rdcycle64();
 
