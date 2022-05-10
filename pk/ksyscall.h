@@ -81,6 +81,17 @@ static inline int sys_fstat(int fd, struct frontend_stat* st)
   return frontend_syscall(SYS_fstat, fd, kva2pa(st), 0, 0, 0, 0, 0);
 }
 
+// Wrapper of system call `renameat`.
+static inline int sys_renameat(int old_dir_fd, const char* old_path,
+                               int new_dir_fd, const char* new_path)
+{
+  size_t old_path_size = strlen(old_path) + 1;
+  size_t new_path_size = strlen(new_path) + 1;
+  return frontend_syscall(SYS_renameat, old_dir_fd, kva2pa(old_path),
+                          old_path_size, new_dir_fd, kva2pa(new_path),
+                          new_path_size, 0);
+}
+
 // Opens a file at the checkpoint directory, or panics if it fails.
 static inline int open_assert(const char* path, int flag)
 {
