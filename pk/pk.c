@@ -25,7 +25,7 @@ static void help()
   printk("  -p                    Disable on-demand program paging\n");
   printk("  -s                    Print cycles upon termination\n");
   printk("  --randomize-mapping   Randomize page mapping\n");
-  printk("  -c <N>                Dump checkpoints every N milliseconds\n");
+  printk("  -c <N>                Dump checkpoints every N instructions\n");
   printk("  -d <directory>        Specify the directory of checkpoint dumps,\n"
          "                        default to the current working directory\n");
   printk("  --compress            Compress memory dump\n");
@@ -63,7 +63,7 @@ static size_t handle_option(const char** arg, bool last_arg)
     return 1;
   }
 
-  if (strcmp(arg[0], "-c") == 0 && !last_arg && arg[1]) { // dump checkpoints every N milliseconds
+  if (strcmp(arg[0], "-c") == 0 && !last_arg && arg[1]) { // dump checkpoints every N instructions
     checkpoint_interval = atol(arg[1]);
     if (checkpoint_interval <= 0) suggest_help();
     return 2;

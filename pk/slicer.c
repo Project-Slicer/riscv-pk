@@ -18,18 +18,9 @@ int dump_file_contents; // set by --dump-file flag
 const char* restore_dir; // set by -r flag
 int dir_fd; // used by `ksyscall.h` and `checkpoint.c`
 
-static uint64_t last_checkpoint_cycle;
+static uint64_t last_checkpoint_instret;
 static int strace_fd;
 static size_t checkpoint_id;
-
-// Checks if it's time to checkpoint.
-static inline bool should_checkpoint(const trapframe_t* tf)
-{
-  bool meet_interval =
-      (rdcycle64() - last_checkpoint_cycle) / (CLOCK_FREQ / 1000) >=
-      checkpoint_interval;
-  return meet_interval;
-}
 
 // Traces system calls and dumps them to the trace file.
 static void trace_syscall(const trapframe_t* tf)
@@ -87,10 +78,6 @@ void slicer_init()
   // skip if checkpointing is disabled
   if (!checkpoint_interval) return;
 
-  // initialize cycle counter
-  kassert(CLOCK_FREQ % 1000 == 0);
-  last_checkpoint_cycle = rdcycle64();
-
   // initialize checkpoint directory
   if (checkpoint_dir) {
     dir_fd = sys_openat(AT_FDCWD, checkpoint_dir, O_DIRECTORY, 0);
@@ -121,7 +108,7 @@ void slicer_syscall_handler(const void* tf)
       }
       default: {
         // perform checkpoint
-        if (should_checkpoint(tf))
+        if (rdinstret64() - last_checkpoint_instret >= checkpoint_interval)
           slicer_checkpoint(tf);
         // trace system call
         trace_syscall(tf);
@@ -160,7 +147,7 @@ void slicer_checkpoint(const void* tf)
   }
 
   // update checkpoint cycle counter
-  last_checkpoint_cycle = rdcycle64();
+  last_checkpoint_instret = rdinstret64();
 
   // restore directory
   close_assert(dir_fd);
