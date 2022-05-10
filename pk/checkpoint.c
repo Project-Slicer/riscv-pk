@@ -48,17 +48,6 @@ static inline int get_endianness()
 #endif
 }
 
-void trace_syscall(int strace_fd, const void* t)
-{
-  const trapframe_t* tf = t;
-  strace_t strace;
-  for (size_t i = 0; i < 6; i++)
-    strace.args[i] = tf->gpr[10 + i];
-  strace.args[6] = tf->gpr[17];
-  strace.epc = tf->epc;
-  write_assert(strace_fd, &strace, sizeof(strace));
-}
-
 // Dumps platform information.
 static void dump_platinfo()
 {
