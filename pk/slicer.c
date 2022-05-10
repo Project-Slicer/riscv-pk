@@ -22,33 +22,6 @@ static uint64_t last_checkpoint_cycle;
 static int strace_fd;
 static size_t checkpoint_id;
 
-void slicer_init()
-{
-  // skip if checkpointing is disabled
-  if (!checkpoint_interval) return;
-
-  // initialize cycle counter
-  kassert(CLOCK_FREQ % 1000 == 0);
-  last_checkpoint_cycle = rdcycle64();
-
-  // initialize checkpoint directory
-  if (checkpoint_dir) {
-    dir_fd = sys_openat(AT_FDCWD, checkpoint_dir, O_DIRECTORY, 0);
-    if (dir_fd == -ENOENT) {
-      if (sys_mkdirat(AT_FDCWD, checkpoint_dir, 0755) < 0)
-        panic("failed to create checkpoint directory: %s", checkpoint_dir);
-      dir_fd = sys_openat(AT_FDCWD, checkpoint_dir, O_DIRECTORY, 0);
-    }
-    if (dir_fd < 0)
-      panic("failed to open checkpoint directory: %s", checkpoint_dir);
-  } else {
-    dir_fd = AT_FDCWD;
-  }
-
-  // initialize syscall trace file
-  strace_fd = openw_assert("strace");
-}
-
 // Checks if it's time to checkpoint.
 static inline bool should_checkpoint(const trapframe_t* tf)
 {
@@ -89,14 +62,71 @@ static bool check_syscall_trace(const trapframe_t* tf)
   return true;
 }
 
+// Gets the checkpoint directory name by the given checkpoint id.
+static const char* get_checkpoint_dir_name(size_t id)
+{
+  static char dir_name[sizeof("0123456789")];
+  int ret = snprintf(dir_name, sizeof(dir_name), "%ld", checkpoint_id);
+  kassert(ret < sizeof(dir_name));
+  return dir_name;
+}
+
+// Moves the system call trace file to the last checkpoint directory.
+static void move_syscall_trace(int old_dir_fd)
+{
+  close_assert(strace_fd);
+  int fd = sys_openat(old_dir_fd, get_checkpoint_dir_name(checkpoint_id - 1),
+                      O_DIRECTORY, 0);
+  int ret = sys_renameat(old_dir_fd, "strace", fd, "strace");
+  kassert(ret == 0);
+}
+
+void slicer_init()
+{
+  // skip if checkpointing is disabled
+  if (!checkpoint_interval) return;
+
+  // initialize cycle counter
+  kassert(CLOCK_FREQ % 1000 == 0);
+  last_checkpoint_cycle = rdcycle64();
+
+  // initialize checkpoint directory
+  if (checkpoint_dir) {
+    dir_fd = sys_openat(AT_FDCWD, checkpoint_dir, O_DIRECTORY, 0);
+    if (dir_fd == -ENOENT) {
+      if (sys_mkdirat(AT_FDCWD, checkpoint_dir, 0755) < 0)
+        panic("failed to create checkpoint directory: %s", checkpoint_dir);
+      dir_fd = sys_openat(AT_FDCWD, checkpoint_dir, O_DIRECTORY, 0);
+    }
+    if (dir_fd < 0)
+      panic("failed to open checkpoint directory: %s", checkpoint_dir);
+  } else {
+    dir_fd = AT_FDCWD;
+  }
+
+  // initialize syscall trace file
+  strace_fd = openw_assert("strace");
+}
+
 void slicer_syscall_handler(const void* tf)
 {
   if (checkpoint_interval) {
-    // perform checkpoint
-    if (should_checkpoint(tf))
-      slicer_checkpoint(tf);
-    // trace system call
-    trace_syscall(tf);
+    switch (((trapframe_t*)tf)->gpr[17]) {
+      case SYS_exit:
+      case SYS_exit_group:
+      case SYS_tgkill: {
+        move_syscall_trace(dir_fd);
+        break;
+      }
+      default: {
+        // perform checkpoint
+        if (should_checkpoint(tf))
+          slicer_checkpoint(tf);
+        // trace system call
+        trace_syscall(tf);
+        break;
+      }
+    }
   } else if (restore_dir) {
     // check system call trace
     if (!check_syscall_trace(tf))
@@ -112,9 +142,7 @@ void slicer_syscall_post_handler(const void* tf)
 void slicer_checkpoint(const void* tf)
 {
   // make checkpoint directory
-  char dir_name[sizeof("0123456789")];
-  int ret = snprintf(dir_name, sizeof(dir_name), "%ld", checkpoint_id);
-  kassert(ret < sizeof(dir_name));
+  const char* dir_name = get_checkpoint_dir_name(checkpoint_id);
   mkdir_assert(dir_name);
 
   // change directory to the checkpoint directory
@@ -125,16 +153,13 @@ void slicer_checkpoint(const void* tf)
   do_checkpoint(tf);
 
   // update system call trace
-  close_assert(strace_fd);
-  ret = sys_renameat(old_dir_fd, "strace", dir_fd, "strace");
-  kassert(ret == 0);
-  strace_fd = openw_assert("strace");
+  if (checkpoint_id) {
+    move_syscall_trace(old_dir_fd);
+    strace_fd = openw_assert("strace");
+  }
 
   // update checkpoint cycle counter
   last_checkpoint_cycle = rdcycle64();
-
-  // TODO: remove
-  panic("checkpointed");
 
   // restore directory
   close_assert(dir_fd);
