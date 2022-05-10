@@ -139,4 +139,11 @@ static inline void read_assert(int fd, void* buf, size_t count)
     panic("failed to read from fd: %d", fd);
 }
 
+// Closes the given file descriptor, or panics if it fails.
+static inline void close_assert(int fd)
+{
+  if (sys_close(fd) < 0)
+    panic("failed to close fd: %d", fd);
+}
+
 #endif
