@@ -66,19 +66,20 @@ static bool check_syscall_trace(const trapframe_t* tf)
 static const char* get_checkpoint_dir_name(size_t id)
 {
   static char dir_name[sizeof("0123456789")];
-  int ret = snprintf(dir_name, sizeof(dir_name), "%ld", checkpoint_id);
+  int ret = snprintf(dir_name, sizeof(dir_name), "%ld", id);
   kassert(ret < sizeof(dir_name));
   return dir_name;
 }
 
 // Moves the system call trace file to the last checkpoint directory.
-static void move_syscall_trace(int old_dir_fd)
+static void move_syscall_trace(int dir_fd)
 {
   close_assert(strace_fd);
-  int fd = sys_openat(old_dir_fd, get_checkpoint_dir_name(checkpoint_id - 1),
+  int fd = sys_openat(dir_fd, get_checkpoint_dir_name(checkpoint_id - 1),
                       O_DIRECTORY, 0);
-  int ret = sys_renameat(old_dir_fd, "strace", fd, "strace");
+  int ret = sys_renameat(dir_fd, "strace", fd, "strace");
   kassert(ret == 0);
+  close_assert(fd);
 }
 
 void slicer_init()
@@ -155,7 +156,7 @@ void slicer_checkpoint(const void* tf)
   // update system call trace
   if (checkpoint_id) {
     move_syscall_trace(old_dir_fd);
-    strace_fd = openw_assert("strace");
+    strace_fd = sys_openat(old_dir_fd, "strace", O_WRONLY | O_CREAT | O_TRUNC, 0644);
   }
 
   // update checkpoint cycle counter
