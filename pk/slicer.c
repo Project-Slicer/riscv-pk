@@ -19,6 +19,7 @@ int dir_fd; // used by `ksyscall.h` and `checkpoint.c`
 
 static uint64_t last_checkpoint_cycle;
 static int strace_fd;
+static size_t checkpoint_id;
 
 void slicer_init()
 {
@@ -65,18 +66,37 @@ void slicer_syscall_handler(const void* tf)
   trace_syscall(strace_fd, tf);
 
   // perform checkpoint
-  if (should_checkpoint(tf)) {
-    do_checkpoint(tf);
-    last_checkpoint_cycle = rdcycle64();
-
-    // TODO: remove
-    panic("checkpointed");
-  }
+  if (should_checkpoint(tf))
+    slicer_checkpoint(tf);
 }
 
 void slicer_syscall_post_handler(const void* tf)
 {
   // TODO
+}
+
+void slicer_checkpoint(const void* tf)
+{
+  // make checkpoint directory
+  char dir_name[sizeof("0123456789")];
+  int ret = snprintf(dir_name, sizeof(dir_name), "%ld", checkpoint_id);
+  kassert(ret < sizeof(dir_name));
+  mkdir_assert(dir_name);
+
+  // change directory to the checkpoint directory
+  int old_dir_fd = dir_fd;
+  dir_fd = sys_openat(old_dir_fd, dir_name, O_DIRECTORY, 0);
+
+  // do checkpoint
+  do_checkpoint(tf);
+  last_checkpoint_cycle = rdcycle64();
+
+  // TODO: remove
+  panic("checkpointed");
+
+  // restore directory
+  dir_fd = old_dir_fd;
+  ++checkpoint_id;
 }
 
 void slicer_restore(uintptr_t kstack_top)

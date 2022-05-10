@@ -16,6 +16,9 @@ void slicer_init();
 void slicer_syscall_handler(const void* tf);
 void slicer_syscall_post_handler(const void* tf);
 
+// Dumps a checkpoint.
+void slicer_checkpoint(const void* tf);
+
 // Restores from a checkpoint.
 // This function must be called at initialization time, and only once.
 void slicer_restore(uintptr_t kstack_top);
