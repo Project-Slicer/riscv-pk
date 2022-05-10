@@ -72,7 +72,7 @@ static void dump_platinfo()
   };
   int fd = openw_assert("platinfo");
   write_assert(fd, &platinfo, sizeof(platinfo));
-  sys_close(fd);
+  close_assert(fd);
 }
 
 // Dumps current executable's information.
@@ -95,7 +95,7 @@ static void dump_current()
   };
   int fd = openw_assert("current");
   write_assert(fd, &cur, sizeof(cur));
-  sys_close(fd);
+  close_assert(fd);
 }
 
 // Dumps performance counters.
@@ -108,7 +108,7 @@ static void dump_counter()
   };
   int fd = openw_assert("counter");
   write_assert(fd, &counter, sizeof(counter));
-  sys_close(fd);
+  close_assert(fd);
 }
 
 // Dumps trapframe.
@@ -116,7 +116,7 @@ static void dump_trapframe(const trapframe_t* tf)
 {
   int fd = openw_assert("tf");
   write_assert(fd, tf, sizeof(*tf));
-  sys_close(fd);
+  close_assert(fd);
 }
 
 // Dumps floating point registers.
@@ -143,7 +143,7 @@ static void dump_fpregs()
 
   int fd = openw_assert("fpregs");
   write_assert(fd, &fpregs, sizeof(fpregs));
-  sys_close(fd);
+  close_assert(fd);
 }
 
 // Returns the index of the given file object, or -1 if the file object is NULL.
@@ -217,7 +217,7 @@ static void dump_kfd(int kfd)
     int out_fd = openw_assert(kfd_path);
     if ((flags & O_ACCMODE) == O_RDONLY || (flags & O_ACCMODE) == O_RDWR)
       copy_assert(out_fd, kfd);
-    sys_close(out_fd);
+    close_assert(out_fd);
   }
 
   // dump kfd data
@@ -229,7 +229,7 @@ static void dump_kfd(int kfd)
   };
   write_assert(fd, &data, sizeof(data));
   write_assert(fd, kfd_path, path_len);
-  sys_close(fd);
+  close_assert(fd);
 }
 
 // Dumps file objects.
@@ -249,7 +249,7 @@ static void dump_files()
     write_assert(obj, &files[i].kfd, sizeof(files[i].kfd));
     write_assert(obj, &files[i].refcnt, sizeof(files[i].refcnt));
   }
-  sys_close(obj);
+  close_assert(obj);
 
   // dump file descriptors
   int fd = openw_assert("file/fd");
@@ -259,7 +259,7 @@ static void dump_files()
     index = file_index(fds[i]);
     write_assert(fd, &index, sizeof(index));
   }
-  sys_close(fd);
+  close_assert(fd);
 }
 
 // Dumps page.
@@ -342,10 +342,10 @@ static void dump_memory()
     dump_page_table(clear_ad);
 
   // close files
-  sys_close(page_file);
-  sys_close(vmr_file);
-  sys_close(pmap_file);
-  sys_close(vmap_file);
+  close_assert(page_file);
+  close_assert(vmr_file);
+  close_assert(pmap_file);
+  close_assert(vmap_file);
 }
 
 void do_checkpoint(const void* tf)
@@ -391,7 +391,7 @@ static bool check_platinfo()
   platinfo_t platinfo;
   int fd = openr_assert("platinfo");
   read_assert(fd, &platinfo, sizeof(platinfo));
-  sys_close(fd);
+  close_assert(fd);
 
   if (platinfo.magic[0] != 'p' || platinfo.magic[1] != 'i')
     return false;
@@ -412,7 +412,7 @@ static void restore_current()
   current_t cur;
   int fd = openr_assert("current");
   read_assert(fd, &cur, sizeof(cur));
-  sys_close(fd);
+  close_assert(fd);
 
   current.phent = cur.phent;
   current.phnum = cur.phnum;
@@ -435,7 +435,7 @@ static void restore_counter()
   counter_t counter;
   int fd = openr_assert("counter");
   read_assert(fd, &counter, sizeof(counter));
-  sys_close(fd);
+  close_assert(fd);
 
   set_counter(counter.time, counter.cycle, counter.instret);
   if (current.cycle0) {
@@ -450,7 +450,7 @@ static void restore_trapframe(trapframe_t* tf)
 {
   int fd = openr_assert("tf");
   read_assert(fd, tf, sizeof(*tf));
-  sys_close(fd);
+  close_assert(fd);
 }
 
 // Restores floating point registers.
@@ -459,7 +459,7 @@ static void restore_fpregs()
   fpregs_t fpregs;
   int fd = openr_assert("fpregs");
   read_assert(fd, &fpregs, sizeof(fpregs));
-  sys_close(fd);
+  close_assert(fd);
 
 #ifdef __riscv_flen
 # if __riscv_flen == 32
@@ -496,7 +496,7 @@ static int restore_kfd(int kfd)
   kfd_t data;
   read_assert(fd, &data, sizeof(data));
   read_assert(fd, kfd_path, data.path_len);
-  sys_close(fd);
+  close_assert(fd);
 
   kfd_path[data.path_len] = '\0';
   int new_kfd = open_assert(kfd_path, data.flags);
@@ -520,7 +520,7 @@ static void restore_files()
     if (files[i].refcnt)
       files[i].kfd = restore_kfd(files[i].kfd);
   }
-  sys_close(obj);
+  close_assert(obj);
 
   // restore file descriptors
   int fd = openr_assert("file/fd");
@@ -535,7 +535,7 @@ static void restore_files()
       panic("invalid file object index");
     fds[i] = &files[index];
   }
-  sys_close(fd);
+  close_assert(fd);
 }
 
 // Restores pages.
@@ -559,8 +559,8 @@ static void restore_pages()
     insert_page(vaddr, page, type);
   }
 
-  sys_close(pmap_fd);
-  sys_close(page_fd);
+  close_assert(pmap_fd);
+  close_assert(page_fd);
 }
 
 // Restores VMRs.
@@ -589,7 +589,7 @@ static void restore_vmrs()
                                  data.refcnt, data.prot);
   }
 
-  sys_close(vmr_fd);
+  close_assert(vmr_fd);
 }
 
 // Restores VMR mapping.
@@ -610,7 +610,7 @@ static void restore_vmr_map()
     insert_vmr(record.vaddr, vmrs[record.id]);
   }
 
-  sys_close(vmap_fd);
+  close_assert(vmap_fd);
 }
 
 // Restores memory.
