@@ -73,6 +73,24 @@ static void move_syscall_trace(int dir_fd)
   close_assert(fd);
 }
 
+// Marks PA bits in the `pmap` file of the last checkpoint.
+static void mark_last_pa_bits()
+{
+  // TODO
+}
+
+// Marks PR bits in the `pmap` file of the last checkpoint.
+static void mark_last_pr_bits()
+{
+  // TODO
+}
+
+// Compresses the memory dump of the last checkpoint.
+static void compress_last_mem_dump()
+{
+  // TODO
+}
+
 void slicer_init()
 {
   // skip if checkpointing is disabled
@@ -103,7 +121,15 @@ void slicer_syscall_handler(const void* tf)
       case SYS_exit:
       case SYS_exit_group:
       case SYS_tgkill: {
+        if (compress_mem_dump)
+          compress_last_mem_dump();
         move_syscall_trace(dir_fd);
+        break;
+      }
+      case SYS_mmap:
+      case SYS_munmap: {
+        if (compress_mem_dump)
+          mark_last_pa_bits();
         break;
       }
       default: {
@@ -124,7 +150,11 @@ void slicer_syscall_handler(const void* tf)
 
 void slicer_syscall_post_handler(const void* tf)
 {
-  // TODO
+  long syscall_num = ((trapframe_t*)tf)->gpr[17];
+  if (compress_mem_dump &&
+      (syscall_num == SYS_mmap || syscall_num == SYS_munmap)) {
+    mark_last_pr_bits();
+  }
 }
 
 void slicer_checkpoint(const void* tf)
@@ -139,6 +169,8 @@ void slicer_checkpoint(const void* tf)
 
   // do checkpoint
   do_checkpoint(tf);
+  if (compress_mem_dump)
+    compress_last_mem_dump();
 
   // update system call trace
   if (checkpoint_id) {
