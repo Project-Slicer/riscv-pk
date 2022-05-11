@@ -304,15 +304,6 @@ static void dump_page_vmr(uintptr_t vaddr, pte_t* pte, const void* p, int is_vmr
     dump_page(vaddr, pte, p);
 }
 
-// Clears the A-bit and D-bit of the page table entry.
-static void clear_ad(uintptr_t vaddr, pte_t* pte, const void* p, int is_vmr)
-{
-  if (!is_vmr) {
-    *pte &= ~(PTE_A | PTE_D);
-    flush_tlb_entry(vaddr);
-  }
-}
-
 // Dumps memory.
 static void dump_memory()
 {
@@ -326,9 +317,6 @@ static void dump_memory()
   // dump pages and VMRs
   vmrs_count = 0;
   dump_page_table(dump_page_vmr);
-  // clear A-bit and D-bit of page table entries
-  if (compress_mem_dump)
-    dump_page_table(clear_ad);
 
   // close files
   close_assert(page_file);
