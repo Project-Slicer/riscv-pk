@@ -632,3 +632,9 @@ void insert_vmr(uintptr_t vaddr, const vmr_t* vmr)
   kassert(pte && !*pte);
   *pte = (pte_t)vmr;
 }
+
+int page_accessed(uintptr_t vaddr)
+{
+  pte_t* pte = __walk(vaddr);
+  return pte && (*pte & PTE_A);
+}

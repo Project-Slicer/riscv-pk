@@ -59,5 +59,6 @@ void dump_page_table(dump_callback_t callback);
 void insert_page(uintptr_t vaddr, uintptr_t page, int type);
 vmr_t* new_vmr(uintptr_t addr, size_t length, file_t* file, size_t offset, unsigned refcnt, int prot);
 void insert_vmr(uintptr_t vaddr, const vmr_t* vmr);
+int page_accessed(uintptr_t vaddr);
 
 #endif
