@@ -92,6 +92,12 @@ static inline int sys_renameat(int old_dir_fd, const char* old_path,
                           new_path_size, 0);
 }
 
+// Wrapper of system call `pwrite`.
+static inline ssize_t sys_pwrite(int fd, const void* buf, size_t count, off_t offset)
+{
+  return frontend_syscall(SYS_pwrite, fd, kva2pa(buf), count, offset, 0, 0, 0);
+}
+
 // Opens a file at the checkpoint directory, or panics if it fails.
 static inline int open_assert(const char* path, int flag)
 {
