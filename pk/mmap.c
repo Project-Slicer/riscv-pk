@@ -612,7 +612,7 @@ void insert_page(uintptr_t vaddr, uintptr_t page, int type)
 {
   pte_t* pte = __walk_create(vaddr);
   kassert(pte && !*pte);
-  *pte = (ppn(page) << PTE_PPN_SHIFT) | type;
+  *pte = (ppn(page) << PTE_PPN_SHIFT) | type | PTE_A | PTE_D;
   flush_tlb_entry(vaddr);
 }
 
