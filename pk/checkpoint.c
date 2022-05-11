@@ -15,7 +15,7 @@
 #include <stdbool.h>
 
 // For kernel file descriptor dump.
-static char kfd_path[PATH_MAX];
+static char kfd_path[128];
 static char kfd_dump_path[sizeof("file/kfd/0123456789")];
 
 // For memory dump.
