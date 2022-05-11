@@ -75,6 +75,13 @@ typedef struct {
   uint32_t __pad0;
 } vmr_data_t;
 
+// Physical mapping record.
+#define PMAP_PA_SHIFT 11
+#define PMAP_PA (1 << PMAP_PA_SHIFT)
+#define PMAP_PR_SHIFT 10
+#define PMAP_PR (1 << PMAP_PR_SHIFT)
+#define PMAP_PA_PR (PMAP_PA | PMAP_PR)
+
 // VMR mapping record.
 typedef struct {
   size_t vaddr;
