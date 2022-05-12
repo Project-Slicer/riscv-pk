@@ -7,10 +7,12 @@
 #include "ksyscall.h"
 #include "checkpoint.h"
 #include "dump.h"
+#include "mmap.h"
 #include <stdint.h>
 #include <errno.h>
 #include <stdbool.h>
 
+// Command line options.
 size_t checkpoint_interval; // set by -c flag, milliseconds
 const char* checkpoint_dir; // set by -d flag
 int compress_mem_dump; // set by --compress flag
@@ -18,9 +20,15 @@ int dump_file_contents; // set by --dump-file flag
 const char* restore_dir; // set by -r flag
 int dir_fd; // used by `ksyscall.h` and `checkpoint.c`
 
+// For slicer.
 static uint64_t last_checkpoint_instret;
 static int strace_fd;
 static size_t checkpoint_id;
+
+// For memory dump compressor.
+static size_t *pmap_cache;
+static uintptr_t msyscall_vaddr;
+static size_t msyscall_len;
 
 // Traces system calls and dumps them to the trace file.
 static void trace_syscall(const trapframe_t* tf)
@@ -73,22 +81,68 @@ static void move_syscall_trace(int dir_fd)
   close_assert(fd);
 }
 
-// Marks PA bits in the `pmap` file of the last checkpoint.
-static void mark_last_pa_bits()
+// Updates the `pmap` file of the last checkpoint.
+static void update_last_pmap(bool (*callback)(uintptr_t, size_t*))
 {
-  // TODO
+  // open the pmap file
+  int last_dir_fd = sys_openat(
+      dir_fd, get_checkpoint_dir_name(checkpoint_id - 1), O_DIRECTORY, 0);
+  int pmap_fd = sys_openat(last_dir_fd, "mem/pmap", O_RDWR, 0);
+  kassert(pmap_fd >= 0);
+
+  // update the file by the callback
+  size_t offset = 0;
+  ssize_t len;
+  while ((len = sys_read(pmap_fd, pmap_cache, sizeof(pmap_cache))) > 0) {
+    bool modified = false;
+    for (size_t i = 0; i < len / sizeof(size_t); i++) {
+      if (pmap_cache[i] & PMAP_PA_PR)
+        continue;
+      uintptr_t vaddr = pmap_cache[i] & ~((1 << RISCV_PGSHIFT) - 1);
+      if (callback(vaddr, &pmap_cache[i]))
+        modified = true;
+    }
+    // write back
+    if (modified) {
+      ssize_t ret = sys_pwrite(pmap_fd, pmap_cache, len, offset);
+      kassert(ret == len);
+      offset += len;
+    }
+  }
+  kassert(len == 0);
+
+  // close the pmap file
+  close_assert(pmap_fd);
+  close_assert(last_dir_fd);
 }
 
-// Marks PR bits in the `pmap` file of the last checkpoint.
-static void mark_last_pr_bits()
+// Marks PA-bit of a `pmap` entry.
+static bool mark_pa_bit(uintptr_t vaddr, size_t* entry)
 {
-  // TODO
+  if (page_accessed(vaddr))
+    *entry |= PMAP_PA;
+}
+
+// Marks PR-bit of a `pmap` entry.
+static bool mark_pr_bit(uintptr_t vaddr, size_t* entry)
+{
+  if (vaddr >= msyscall_vaddr && vaddr < msyscall_vaddr + msyscall_len)
+    *entry |= PMAP_PR;
 }
 
 // Compresses the memory dump of the last checkpoint.
-static void compress_last_mem_dump()
+static void compress_last_mem_dump(int dir_fd)
 {
   // TODO
+}
+
+// Clears the A-bit and D-bit of the page table entry.
+static void clear_ad(uintptr_t vaddr, pte_t* pte, const void* p, int is_vmr)
+{
+  if (!is_vmr) {
+    *pte &= ~(PTE_A | PTE_D);
+    flush_tlb_entry(vaddr);
+  }
 }
 
 void slicer_init()
@@ -112,6 +166,9 @@ void slicer_init()
 
   // initialize syscall trace file
   strace_fd = openw_assert("strace");
+
+  // initialize pmap cache
+  pmap_cache = __page_alloc_assert();
 }
 
 void slicer_syscall_handler(const void* tf)
@@ -122,14 +179,14 @@ void slicer_syscall_handler(const void* tf)
       case SYS_exit_group:
       case SYS_tgkill: {
         if (compress_mem_dump)
-          compress_last_mem_dump();
+          compress_last_mem_dump(dir_fd);
         move_syscall_trace(dir_fd);
         break;
       }
       case SYS_mmap:
       case SYS_munmap: {
         if (compress_mem_dump)
-          mark_last_pa_bits();
+          update_last_pmap(mark_pa_bit);
         break;
       }
       default: {
@@ -153,7 +210,7 @@ void slicer_syscall_post_handler(const void* tf)
   long syscall_num = ((trapframe_t*)tf)->gpr[17];
   if (compress_mem_dump &&
       (syscall_num == SYS_mmap || syscall_num == SYS_munmap)) {
-    mark_last_pr_bits();
+    update_last_pmap(mark_pr_bit);
   }
 }
 
@@ -169,8 +226,10 @@ void slicer_checkpoint(const void* tf)
 
   // do checkpoint
   do_checkpoint(tf);
-  if (compress_mem_dump)
-    compress_last_mem_dump();
+  if (compress_mem_dump) {
+    compress_last_mem_dump(old_dir_fd);
+    dump_page_table(clear_ad);
+  }
 
   // update system call trace
   if (checkpoint_id) {
