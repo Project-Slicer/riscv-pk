@@ -119,15 +119,21 @@ static void update_last_pmap(bool (*callback)(uintptr_t, size_t*))
 // Marks PA-bit of a `pmap` entry.
 static bool mark_pa_bit(uintptr_t vaddr, size_t* entry)
 {
-  if (page_accessed(vaddr))
+  if (page_accessed(vaddr)) {
     *entry |= PMAP_PA;
+    return true;
+  }
+  return false;
 }
 
 // Marks PR-bit of a `pmap` entry.
 static bool mark_pr_bit(uintptr_t vaddr, size_t* entry)
 {
-  if (vaddr >= msyscall_vaddr && vaddr < msyscall_vaddr + msyscall_len)
+  if (vaddr >= msyscall_vaddr && vaddr < msyscall_vaddr + msyscall_len) {
     *entry |= PMAP_PR;
+    return true;
+  }
+  return false;
 }
 
 // Compresses the memory dump of the last checkpoint.
@@ -215,7 +221,7 @@ void slicer_init()
   strace_fd = openw_assert("strace");
 
   // initialize pmap cache
-  pmap_cache = __page_alloc_assert();
+  pmap_cache = (void*)pa2kva(__page_alloc_assert());
 }
 
 void slicer_syscall_handler(const void* t)
@@ -226,14 +232,14 @@ void slicer_syscall_handler(const void* t)
       case SYS_exit:
       case SYS_exit_group:
       case SYS_tgkill: {
-        if (compress_mem_dump)
+        if (compress_mem_dump && checkpoint_id)
           compress_last_mem_dump(dir_fd);
         move_syscall_trace(dir_fd);
         break;
       }
       case SYS_mmap:
       case SYS_munmap: {
-        if (compress_mem_dump) {
+        if (compress_mem_dump && checkpoint_id) {
           msyscall_vaddr = tf->gpr[10];
           msyscall_len = tf->gpr[11];
           update_last_pmap(mark_pa_bit);
@@ -259,7 +265,7 @@ void slicer_syscall_handler(const void* t)
 void slicer_syscall_post_handler(const void* t)
 {
   const trapframe_t* tf = (const trapframe_t*)t;
-  if (compress_mem_dump) {
+  if (compress_mem_dump && checkpoint_id) {
     if (tf->gpr[17] == SYS_mmap && tf->gpr[10] != -1) {
       msyscall_vaddr = tf->gpr[10];
       update_last_pmap(mark_pr_bit);
@@ -282,7 +288,8 @@ void slicer_checkpoint(const void* tf)
   // do checkpoint
   do_checkpoint(tf);
   if (compress_mem_dump) {
-    compress_last_mem_dump(old_dir_fd);
+    if (checkpoint_id)
+      compress_last_mem_dump(old_dir_fd);
     dump_page_table(clear_ad);
   }
 
