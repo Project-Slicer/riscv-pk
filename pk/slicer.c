@@ -93,7 +93,7 @@ static void update_last_pmap(bool (*callback)(uintptr_t, size_t*))
   // update the file by the callback
   size_t offset = 0;
   ssize_t len;
-  while ((len = sys_read(pmap_fd, pmap_cache, sizeof(pmap_cache))) > 0) {
+  while ((len = sys_read(pmap_fd, pmap_cache, RISCV_PGSIZE)) > 0) {
     bool modified = false;
     for (size_t i = 0; i < len / sizeof(size_t); i++) {
       if (pmap_cache[i] & PMAP_PA_PR)
@@ -133,21 +133,53 @@ static bool mark_pr_bit(uintptr_t vaddr, size_t* entry)
 // Compresses the memory dump of the last checkpoint.
 static void compress_last_mem_dump(int dir_fd)
 {
-  // open the pmap file
+  // open the pmap & page file
   int last_dir_fd = sys_openat(
       dir_fd, get_checkpoint_dir_name(checkpoint_id - 1), O_DIRECTORY, 0);
   int pmap_fd = sys_openat(last_dir_fd, "mem/pmap", O_RDWR, 0);
   int page_fd = sys_openat(last_dir_fd, "mem/page", O_RDWR, 0);
-  kassert(pmap_fd >= 0);
+  kassert(pmap_fd >= 0 && page_fd >= 0);
 
-  size_t offset = 0;
-  ssize_t len;
-  while ((len = sys_read(pmap_fd, pmap_cache, sizeof(pmap_cache))) > 0) {
-    // TODO
+  // update file
+  size_t ri = 0, wi = 0, pmap_entry;
+  ssize_t len, ret;
+  while ((len = sys_read(pmap_fd, &pmap_entry, sizeof(pmap_entry))) > 0) {
+    // check if the page is accessed
+    bool accessed = false;
+    if (pmap_entry & PMAP_PA) {
+      accessed = true;
+    } else if (!(pmap_entry & PMAP_PR)) {
+      uintptr_t vaddr = pmap_entry & ~((1 << RISCV_PGSHIFT) - 1);
+      accessed = page_accessed(vaddr);
+    }
+    // keep the accessed page only
+    if (accessed) {
+      if (wi != ri) {
+        ret = sys_pwrite(pmap_fd, &pmap_entry, sizeof(pmap_entry),
+                         wi * sizeof(pmap_entry));
+        kassert(ret == sizeof(pmap_entry));
+        ret = sys_pread(page_fd, pmap_cache, RISCV_PGSIZE, ri * RISCV_PGSIZE);
+        kassert(ret == RISCV_PGSIZE);
+        ret = sys_pwrite(page_fd, pmap_cache, RISCV_PGSIZE, wi * RISCV_PGSIZE);
+        kassert(ret == RISCV_PGSIZE);
+      }
+      wi++;
+    }
+    ri++;
+  }
+  kassert(len == 0);
+
+  // truncate file
+  if (wi != ri) {
+    ret = sys_ftruncate(pmap_fd, wi * sizeof(pmap_entry));
+    kassert(ret == 0);
+    ret = sys_ftruncate(page_fd, wi * RISCV_PGSIZE);
+    kassert(ret == 0);
   }
 
-  // close the pmap file
+  // close the pmap & page file
   close_assert(pmap_fd);
+  close_assert(page_fd);
   close_assert(last_dir_fd);
 }
 
