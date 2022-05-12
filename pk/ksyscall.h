@@ -98,6 +98,18 @@ static inline ssize_t sys_pwrite(int fd, const void* buf, size_t count, off_t of
   return frontend_syscall(SYS_pwrite, fd, kva2pa(buf), count, offset, 0, 0, 0);
 }
 
+// Wrapper of system call `pread`.
+static inline ssize_t sys_pread(int fd, void* buf, size_t count, off_t offset)
+{
+  return frontend_syscall(SYS_pread, fd, kva2pa(buf), count, offset, 0, 0, 0);
+}
+
+// Wrapper of system call `ftruncate`.
+static inline int sys_ftruncate(int fd, off_t length)
+{
+  return frontend_syscall(SYS_ftruncate, fd, length, 0, 0, 0, 0, 0);
+}
+
 // Opens a file at the checkpoint directory, or panics if it fails.
 static inline int open_assert(const char* path, int flag)
 {
