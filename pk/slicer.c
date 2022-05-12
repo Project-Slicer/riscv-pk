@@ -106,8 +106,8 @@ static void update_last_pmap(bool (*callback)(uintptr_t, size_t*))
     if (modified) {
       ssize_t ret = sys_pwrite(pmap_fd, pmap_cache, len, offset);
       kassert(ret == len);
-      offset += len;
     }
+    offset += len;
   }
   kassert(len == 0);
 
@@ -133,7 +133,22 @@ static bool mark_pr_bit(uintptr_t vaddr, size_t* entry)
 // Compresses the memory dump of the last checkpoint.
 static void compress_last_mem_dump(int dir_fd)
 {
-  // TODO
+  // open the pmap file
+  int last_dir_fd = sys_openat(
+      dir_fd, get_checkpoint_dir_name(checkpoint_id - 1), O_DIRECTORY, 0);
+  int pmap_fd = sys_openat(last_dir_fd, "mem/pmap", O_RDWR, 0);
+  int page_fd = sys_openat(last_dir_fd, "mem/page", O_RDWR, 0);
+  kassert(pmap_fd >= 0);
+
+  size_t offset = 0;
+  ssize_t len;
+  while ((len = sys_read(pmap_fd, pmap_cache, sizeof(pmap_cache))) > 0) {
+    // TODO
+  }
+
+  // close the pmap file
+  close_assert(pmap_fd);
+  close_assert(last_dir_fd);
 }
 
 // Clears the A-bit and D-bit of the page table entry.
@@ -171,10 +186,11 @@ void slicer_init()
   pmap_cache = __page_alloc_assert();
 }
 
-void slicer_syscall_handler(const void* tf)
+void slicer_syscall_handler(const void* t)
 {
+  const trapframe_t* tf = (const trapframe_t*)t;
   if (checkpoint_interval) {
-    switch (((trapframe_t*)tf)->gpr[17]) {
+    switch (tf->gpr[17]) {
       case SYS_exit:
       case SYS_exit_group:
       case SYS_tgkill: {
@@ -185,8 +201,11 @@ void slicer_syscall_handler(const void* tf)
       }
       case SYS_mmap:
       case SYS_munmap: {
-        if (compress_mem_dump)
+        if (compress_mem_dump) {
+          msyscall_vaddr = tf->gpr[10];
+          msyscall_len = tf->gpr[11];
           update_last_pmap(mark_pa_bit);
+        }
         break;
       }
       default: {
@@ -205,12 +224,16 @@ void slicer_syscall_handler(const void* tf)
   }
 }
 
-void slicer_syscall_post_handler(const void* tf)
+void slicer_syscall_post_handler(const void* t)
 {
-  long syscall_num = ((trapframe_t*)tf)->gpr[17];
-  if (compress_mem_dump &&
-      (syscall_num == SYS_mmap || syscall_num == SYS_munmap)) {
-    update_last_pmap(mark_pr_bit);
+  const trapframe_t* tf = (const trapframe_t*)t;
+  if (compress_mem_dump) {
+    if (tf->gpr[17] == SYS_mmap && tf->gpr[10] != -1) {
+      msyscall_vaddr = tf->gpr[10];
+      update_last_pmap(mark_pr_bit);
+    } else if (tf->gpr[17] == SYS_munmap) {
+      update_last_pmap(mark_pr_bit);
+    }
   }
 }
 
