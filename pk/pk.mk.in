@@ -18,6 +18,7 @@ pk_hdrs = \
 	ksyscall.h \
 	dump.h \
 	checkpoint.h \
+	uncompress.h \
 
 pk_c_srcs = \
 	file.c \
@@ -30,6 +31,7 @@ pk_c_srcs = \
 	usermem.c \
 	slicer.c \
 	checkpoint.c \
+	uncompress.c \
 
 pk_asm_srcs = \
 	entry.S \
