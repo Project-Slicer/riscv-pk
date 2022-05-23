@@ -30,6 +30,8 @@ static size_t checkpoint_id;
 static size_t *pmap_cache;
 static uintptr_t msyscall_vaddr;
 static size_t msyscall_len;
+#define MAX_COMPRESSOR_IDS 64
+static size_t compressor_ids[MAX_COMPRESSOR_IDS], compressor_id_count;
 
 // Traces system calls and dumps them to the trace file.
 static void trace_syscall(const trapframe_t* tf)
@@ -190,6 +192,38 @@ static void remove_unaccessed_pages(int dir_fd)
   close_assert(last_dir_fd);
 }
 
+// Frees the compressors.
+static void free_compressors()
+{
+  size_t new_count = 0;
+  for (size_t i = 0; i < compressor_id_count; i++) {
+    int result = compressquery_assert(compressor_ids[i]);
+    if (result == 1) {
+      panic("failed to compress memory dump");
+    } else if (result != 0) {
+      if (new_count != i)
+        compressor_ids[new_count] = compressor_ids[i];
+      new_count++;
+    }
+  }
+  compressor_id_count = new_count;
+}
+
+// Compresses the last memory dump.
+static void compress_last_mem_dump(int dir_fd)
+{
+  // wait for the compressors to finish
+  while (compressor_id_count == MAX_COMPRESSOR_IDS)
+    free_compressors();
+
+  // create a new compressor
+  int last_dir_fd = sys_openat(
+      dir_fd, get_checkpoint_dir_name(checkpoint_id - 1), O_DIRECTORY, 0);
+  kassert(last_dir_fd >= 0);
+  compressor_ids[compressor_id_count++] =
+      compressfile_assert(last_dir_fd, "mem/page");
+}
+
 // Clears the A-bit and D-bit of the page table entry.
 static void clear_ad(uintptr_t vaddr, pte_t* pte, const void* p, int is_vmr)
 {
@@ -233,8 +267,16 @@ void slicer_syscall_handler(const void* t)
       case SYS_exit:
       case SYS_exit_group:
       case SYS_tgkill: {
-        if (dump_accessed_mem && checkpoint_id)
-          remove_unaccessed_pages(dir_fd);
+        if (checkpoint_id) {
+          if (dump_accessed_mem)
+            remove_unaccessed_pages(dir_fd);
+          if (compress_mem_dump) {
+            compress_last_mem_dump(dir_fd);
+            // wait for all compressors to finish
+            while (compressor_id_count)
+              free_compressors();
+          }
+        }
         move_syscall_trace(dir_fd);
         break;
       }
@@ -293,6 +335,8 @@ void slicer_checkpoint(const void* tf)
       remove_unaccessed_pages(old_dir_fd);
     dump_page_table(clear_ad);
   }
+  if (compress_mem_dump && checkpoint_id)
+    compress_last_mem_dump(old_dir_fd);
 
   // update system call trace
   if (checkpoint_id) {
