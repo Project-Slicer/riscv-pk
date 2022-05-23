@@ -175,4 +175,24 @@ static inline void close_assert(int fd)
     panic("failed to close fd: %d", fd);
 }
 
+// Compresses the given file, or panics if it fails.
+static inline size_t compressfile_assert(int dir_fd, const char* path)
+{
+  size_t path_size = strlen(path) + 1;
+  ssize_t id = frontend_syscall(SYS_compressfile, dir_fd, kva2pa(path),
+                                path_size, 0, 0, 0, 0);
+  if (id < 0)
+    panic("failed to compress file: %s", path);
+  return id;
+}
+
+// Queries the given compressor ID, or panics if it fails.
+static inline int compressquery_assert(size_t id)
+{
+  ssize_t ret = frontend_syscall(SYS_compressquery, id, 0, 0, 0, 0, 0, 0);
+  if (ret < 0)
+    panic("failed to query compressor: %ld", id);
+  return ret;
+}
+
 #endif
