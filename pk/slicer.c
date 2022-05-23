@@ -15,6 +15,7 @@
 // Command line options.
 size_t checkpoint_interval; // set by -c flag, milliseconds
 const char* checkpoint_dir; // set by -d flag
+int dump_accessed_mem; // set by --dump-accessed flag
 int compress_mem_dump; // set by --compress flag
 int dump_file_contents; // set by --dump-file flag
 const char* restore_dir; // set by -r flag
@@ -136,8 +137,8 @@ static bool mark_pr_bit(uintptr_t vaddr, size_t* entry)
   return false;
 }
 
-// Compresses the memory dump of the last checkpoint.
-static void compress_last_mem_dump(int dir_fd)
+// Removes the unaccessed pages from the last memory dump.
+static void remove_unaccessed_pages(int dir_fd)
 {
   // open the pmap & page file
   int last_dir_fd = sys_openat(
@@ -232,14 +233,14 @@ void slicer_syscall_handler(const void* t)
       case SYS_exit:
       case SYS_exit_group:
       case SYS_tgkill: {
-        if (compress_mem_dump && checkpoint_id)
-          compress_last_mem_dump(dir_fd);
+        if (dump_accessed_mem && checkpoint_id)
+          remove_unaccessed_pages(dir_fd);
         move_syscall_trace(dir_fd);
         break;
       }
       case SYS_mmap:
       case SYS_munmap: {
-        if (compress_mem_dump && checkpoint_id) {
+        if (dump_accessed_mem && checkpoint_id) {
           msyscall_vaddr = tf->gpr[10];
           msyscall_len = tf->gpr[11];
           update_last_pmap(mark_pa_bit);
@@ -265,7 +266,7 @@ void slicer_syscall_handler(const void* t)
 void slicer_syscall_post_handler(const void* t)
 {
   const trapframe_t* tf = (const trapframe_t*)t;
-  if (compress_mem_dump && checkpoint_id) {
+  if (dump_accessed_mem && checkpoint_id) {
     if (tf->gpr[17] == SYS_mmap && tf->gpr[10] != -1) {
       msyscall_vaddr = tf->gpr[10];
       update_last_pmap(mark_pr_bit);
@@ -287,9 +288,9 @@ void slicer_checkpoint(const void* tf)
 
   // do checkpoint
   do_checkpoint(tf);
-  if (compress_mem_dump) {
+  if (dump_accessed_mem) {
     if (checkpoint_id)
-      compress_last_mem_dump(old_dir_fd);
+      remove_unaccessed_pages(old_dir_fd);
     dump_page_table(clear_ad);
   }
 

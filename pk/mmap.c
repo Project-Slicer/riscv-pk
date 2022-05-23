@@ -266,7 +266,7 @@ static uintptr_t __vm_alloc(size_t npage)
 static inline pte_t prot_to_type(int prot, int user, int set_ad)
 {
   pte_t pte = 0;
-  if (compress_mem_dump && !set_ad) {
+  if (dump_accessed_mem && !set_ad) {
     if (prot & PROT_READ) pte |= PTE_R;
     if (prot & PROT_WRITE) pte |= PTE_W;
     if (prot & PROT_EXEC) pte |= PTE_X;
@@ -314,7 +314,7 @@ static int __handle_page_fault(uintptr_t vaddr, int prot)
     __vmr_decref(v, 1);
     *pte = pte_create(ppn, prot_to_type(v->prot, 1, 0));
     flush_tlb_entry(vaddr);
-  } else if (compress_mem_dump) {
+  } else if (dump_accessed_mem) {
     bool flush = false;
     if (!(*pte & PTE_A)) {
       *pte |= PTE_A;

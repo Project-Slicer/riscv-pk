@@ -28,6 +28,7 @@ static void help()
   printk("  -c <N>                Dump checkpoints every N instructions\n");
   printk("  -d <directory>        Specify the directory of checkpoint dumps,\n"
          "                        default to the current working directory\n");
+  printk("  --dump-accessed       Dump accessed memory only\n");
   printk("  --compress            Compress memory dump\n");
   printk("  --dump-file           Dump the contents of kfd-associated files\n");
   printk("  -r <checkpoint>       Restore from the given checkpoint directory\n");
@@ -76,6 +77,15 @@ static size_t handle_option(const char** arg, bool last_arg)
     }
     checkpoint_dir = arg[1];
     return 2;
+  }
+
+  if (strcmp(arg[0], "--dump-accessed") == 0) { // dump accessed memory only
+    if (!checkpoint_interval) {
+      printk("-c must be specified before --dump-accessed\n");
+      suggest_help();
+    }
+    dump_accessed_mem = 1;
+    return 1;
   }
 
   if (strcmp(arg[0], "--compress") == 0) { // compress memory dump
