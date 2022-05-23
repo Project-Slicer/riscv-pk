@@ -10,6 +10,7 @@
 #include "slicer.h"
 #include "fp_emulation.h"
 #include "mcall.h"
+#include "uncompress.h"
 #include <sys/param.h>
 #include <string.h>
 #include <stdbool.h>
@@ -23,6 +24,8 @@ static int page_file, vmr_file, pmap_file, vmap_file;
 #define MAX_VMRS 128
 static vmr_t const* vmrs[MAX_VMRS];
 static size_t vmrs_count;
+static size_t bytes_written, vaddr_type;
+static uintptr_t current_page;
 
 // Copies between two file descriptors, or panics if it fails.
 static void copy_assert(int dst_fd, int src_fd)
@@ -316,6 +319,7 @@ static void dump_memory()
 
   // dump pages and VMRs
   vmrs_count = 0;
+  write_assert(page_file, "", 1);
   dump_page_table(dump_page_vmr);
 
   // close files
@@ -515,29 +519,55 @@ static void restore_files()
   close_assert(fd);
 }
 
+// Inserts the current page into the page table.
+static void insert_current_page()
+{
+  uintptr_t vaddr = vaddr_type & ~((1 << RISCV_PGSHIFT) - 1);
+  int type = vaddr_type & ((1 << PTE_PPN_SHIFT) - 1);
+  insert_page(vaddr, current_page, type);
+}
+
+// For uncompressing memory dump.
+static void write_page(uint8_t byte)
+{
+  if (bytes_written == 0) {
+    read_assert(pmap_file, &vaddr_type, sizeof(vaddr_type));
+    current_page = __page_alloc_assert();
+  }
+  ((uint8_t*)pa2kva(current_page))[bytes_written++] = byte;
+  if (bytes_written == RISCV_PGSIZE) {
+    insert_current_page();
+    bytes_written = 0;
+  }
+}
+
 // Restores pages.
 static void restore_pages()
 {
-  int pmap_fd = openr_assert("mem/pmap");
-  int page_fd = openr_assert("mem/page");
+  pmap_file = openr_assert("mem/pmap");
+  page_file = openr_assert("mem/page");
 
-  for (;;) {
-    size_t vaddr_type;
-    ssize_t n = sys_read(pmap_fd, &vaddr_type, sizeof(vaddr_type));
-    if (n < 0)
+  // check if the page dump was compressed
+  uint8_t compressed;
+  read_assert(page_file, &compressed, sizeof(compressed));
+  if (compressed) {
+    bytes_written = 0;
+    if (uncompress(page_file, write_page) != 0)
+      panic("failed to uncompress page dump");
+  } else {
+    ssize_t n;
+    while ((n = sys_read(pmap_file, &vaddr_type, sizeof(vaddr_type))) ==
+           sizeof(vaddr_type)) {
+      current_page = __page_alloc_assert();
+      read_assert(page_file, (void*)pa2kva(current_page), RISCV_PGSIZE);
+      insert_current_page();
+    }
+    if (n != 0)
       panic("failed to read physical memory map");
-    if (n == 0)
-      break;
-
-    uintptr_t page = __page_alloc_assert();
-    uintptr_t vaddr = vaddr_type & ~((1 << RISCV_PGSHIFT) - 1);
-    int type = vaddr_type & ((1 << PTE_PPN_SHIFT) - 1);
-    read_assert(page_fd, (void*)pa2kva(page), RISCV_PGSIZE);
-    insert_page(vaddr, page, type);
   }
 
-  close_assert(pmap_fd);
-  close_assert(page_fd);
+  close_assert(pmap_file);
+  close_assert(page_file);
 }
 
 // Restores VMRs.
