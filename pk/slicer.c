@@ -153,6 +153,11 @@ static void remove_unaccessed_pages(int dir_fd)
   int page_fd = sys_openat(last_dir_fd, "mem/page", O_RDWR, 0);
   kassert(pmap_fd >= 0 && page_fd >= 0);
 
+  // check the first byte of the page file
+  uint8_t first_byte;
+  read_assert(page_fd, &first_byte, 1);
+  kassert(first_byte == 0);
+
   // update file
   size_t ri = 0, wi = 0, pmap_entry;
   ssize_t len, ret;
@@ -171,9 +176,9 @@ static void remove_unaccessed_pages(int dir_fd)
         ret = sys_pwrite(pmap_fd, &pmap_entry, sizeof(pmap_entry),
                          wi * sizeof(pmap_entry));
         kassert(ret == sizeof(pmap_entry));
-        ret = sys_pread(page_fd, pmap_cache, RISCV_PGSIZE, ri * RISCV_PGSIZE);
+        ret = sys_pread(page_fd, pmap_cache, RISCV_PGSIZE, 1 + ri * RISCV_PGSIZE);
         kassert(ret == RISCV_PGSIZE);
-        ret = sys_pwrite(page_fd, pmap_cache, RISCV_PGSIZE, wi * RISCV_PGSIZE);
+        ret = sys_pwrite(page_fd, pmap_cache, RISCV_PGSIZE, 1 + wi * RISCV_PGSIZE);
         kassert(ret == RISCV_PGSIZE);
       }
       wi++;
@@ -186,7 +191,7 @@ static void remove_unaccessed_pages(int dir_fd)
   if (wi != ri) {
     ret = sys_ftruncate(pmap_fd, wi * sizeof(pmap_entry));
     kassert(ret == 0);
-    ret = sys_ftruncate(page_fd, wi * RISCV_PGSIZE);
+    ret = sys_ftruncate(page_fd, 1 + wi * RISCV_PGSIZE);
     kassert(ret == 0);
   }
 
