@@ -26,12 +26,16 @@ static uint64_t last_checkpoint_instret;
 static int strace_fd;
 static size_t checkpoint_id;
 
-// For memory dump compressor.
+// For memory dump compression.
 static size_t *pmap_cache;
 static uintptr_t msyscall_vaddr;
 static size_t msyscall_len;
-#define MAX_COMPRESSOR_IDS 64
-static size_t compressor_ids[MAX_COMPRESSOR_IDS], compressor_id_count;
+#define MAX_COMPRESSORS 64
+static struct {
+  uint32_t id;
+  int dir_fd;
+} compressors[MAX_COMPRESSORS];
+static size_t compressor_count;
 
 // Traces system calls and dumps them to the trace file.
 static void trace_syscall(const trapframe_t* tf)
@@ -196,32 +200,36 @@ static void remove_unaccessed_pages(int dir_fd)
 static void free_compressors()
 {
   size_t new_count = 0;
-  for (size_t i = 0; i < compressor_id_count; i++) {
-    int result = compressquery_assert(compressor_ids[i]);
+  for (size_t i = 0; i < compressor_count; i++) {
+    int result = compressquery_assert(compressors[i].id);
     if (result == 1) {
       panic("failed to compress memory dump");
-    } else if (result != 0) {
+    } else if (result == 0) {
+      close_assert(compressors[i].dir_fd);
+    } else {
       if (new_count != i)
-        compressor_ids[new_count] = compressor_ids[i];
+        compressors[new_count] = compressors[i];
       new_count++;
     }
   }
-  compressor_id_count = new_count;
+  compressor_count = new_count;
 }
 
 // Compresses the last memory dump.
 static void compress_last_mem_dump(int dir_fd)
 {
   // wait for the compressors to finish
-  while (compressor_id_count == MAX_COMPRESSOR_IDS)
+  while (compressor_count == MAX_COMPRESSORS)
     free_compressors();
 
   // create a new compressor
   int last_dir_fd = sys_openat(
       dir_fd, get_checkpoint_dir_name(checkpoint_id - 1), O_DIRECTORY, 0);
   kassert(last_dir_fd >= 0);
-  compressor_ids[compressor_id_count++] =
+  compressors[compressor_count].id =
       compressfile_assert(last_dir_fd, "mem/page");
+  compressors[compressor_count].dir_fd = last_dir_fd;
+  compressor_count++;
 }
 
 // Clears the A-bit and D-bit of the page table entry.
@@ -273,7 +281,7 @@ void slicer_syscall_handler(const void* t)
           if (compress_mem_dump) {
             compress_last_mem_dump(dir_fd);
             // wait for all compressors to finish
-            while (compressor_id_count)
+            while (compressor_count)
               free_compressors();
           }
         }
