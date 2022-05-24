@@ -12,6 +12,7 @@ extern int dump_accessed_mem;
 extern int compress_mem_dump;
 extern int dump_file_contents;
 extern const char* restore_dir;
+extern int fuzzy_check_strace;
 
 void slicer_init();
 void slicer_syscall_handler(const void* tf);

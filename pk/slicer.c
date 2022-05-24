@@ -19,6 +19,7 @@ int dump_accessed_mem; // set by --dump-accessed flag
 int compress_mem_dump; // set by --compress flag
 int dump_file_contents; // set by --dump-file flag
 const char* restore_dir; // set by -r flag
+int fuzzy_check_strace; // set by --fuzzy-strace flag
 int dir_fd; // used by `ksyscall.h` and `checkpoint.c`
 
 // For slicer.
@@ -58,9 +59,11 @@ static bool check_syscall_trace(const trapframe_t* tf)
   } else if (len < 0 || (size_t)len != sizeof(strace)) {
     return false;
   } else {
-    for (size_t i = 0; i < 6; i++) {
-      if (strace.args[i] != tf->gpr[10 + i])
-        return false;
+    if (!fuzzy_check_strace) {
+      for (size_t i = 0; i < 6; i++) {
+        if (strace.args[i] != tf->gpr[10 + i])
+          return false;
+      }
     }
     if (strace.args[6] != tf->gpr[17] || strace.epc != tf->epc)
       return false;
