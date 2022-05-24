@@ -8,6 +8,8 @@
 #include "checkpoint.h"
 #include "dump.h"
 #include "mmap.h"
+#include "boot.h"
+#include "bits.h"
 #include <stdint.h>
 #include <errno.h>
 #include <stdbool.h>
@@ -249,6 +251,69 @@ static void clear_ad(uintptr_t vaddr, pte_t* pte, const void* p, int is_vmr)
   }
 }
 
+// Performs some necessary operations before exiting.
+static void exit_handler()
+{
+  if (checkpoint_id) {
+    if (dump_accessed_mem)
+      remove_unaccessed_pages(dir_fd);
+    if (compress_mem_dump) {
+      compress_last_mem_dump(dir_fd);
+      // wait for all compressors to finish
+      while (compressor_count)
+        free_compressors();
+    }
+  }
+  move_syscall_trace(dir_fd);
+}
+
+// Performs some necessary operations before memory system calls.
+static void msyscall_handler(const trapframe_t* tf)
+{
+  if (tf->gpr[17] == SYS_brk) {
+    msyscall_vaddr = current.brk == 0 ? ROUNDUP(current.brk_min, RISCV_PGSIZE)
+                                      : current.brk;
+  } else {
+    msyscall_vaddr = tf->gpr[10];
+  }
+  msyscall_len = tf->gpr[11];
+  update_last_pmap(mark_pa_bit);
+}
+
+// Performs some necessary operations after memory system calls.
+static void msyscall_post_handler(const trapframe_t* tf)
+{
+  // update vaddr and len
+  switch (tf->gpr[17]) {
+    case SYS_mmap: {
+      if (tf->gpr[10] == -1)
+        return;
+      msyscall_vaddr = tf->gpr[10];
+      break;
+    }
+    case SYS_munmap: {
+      break;
+    }
+    case SYS_brk: {
+      if (current.brk == msyscall_vaddr) {
+        return;
+      } else if (current.brk < msyscall_vaddr) {
+        msyscall_len = msyscall_vaddr - current.brk;
+        msyscall_vaddr = current.brk;
+      } else {
+        msyscall_len = current.brk - msyscall_vaddr;
+      }
+      break;
+    }
+    default: {
+      return;
+    }
+  }
+
+  // update last pmap
+  update_last_pmap(mark_pr_bit);
+}
+
 void slicer_init()
 {
   // skip if checkpointing is disabled
@@ -283,26 +348,14 @@ void slicer_syscall_handler(const void* t)
       case SYS_exit:
       case SYS_exit_group:
       case SYS_tgkill: {
-        if (checkpoint_id) {
-          if (dump_accessed_mem)
-            remove_unaccessed_pages(dir_fd);
-          if (compress_mem_dump) {
-            compress_last_mem_dump(dir_fd);
-            // wait for all compressors to finish
-            while (compressor_count)
-              free_compressors();
-          }
-        }
-        move_syscall_trace(dir_fd);
+        exit_handler();
         break;
       }
       case SYS_mmap:
-      case SYS_munmap: {
-        if (dump_accessed_mem && checkpoint_id) {
-          msyscall_vaddr = tf->gpr[10];
-          msyscall_len = tf->gpr[11];
-          update_last_pmap(mark_pa_bit);
-        }
+      case SYS_munmap:
+      case SYS_brk: {
+        if (dump_accessed_mem && checkpoint_id)
+          msyscall_handler(tf);
         break;
       }
       default: {
@@ -324,14 +377,8 @@ void slicer_syscall_handler(const void* t)
 void slicer_syscall_post_handler(const void* t)
 {
   const trapframe_t* tf = (const trapframe_t*)t;
-  if (dump_accessed_mem && checkpoint_id) {
-    if (tf->gpr[17] == SYS_mmap && tf->gpr[10] != -1) {
-      msyscall_vaddr = tf->gpr[10];
-      update_last_pmap(mark_pr_bit);
-    } else if (tf->gpr[17] == SYS_munmap) {
-      update_last_pmap(mark_pr_bit);
-    }
-  }
+  if (dump_accessed_mem && checkpoint_id)
+    msyscall_post_handler(tf);
 }
 
 void slicer_checkpoint(const void* tf)
