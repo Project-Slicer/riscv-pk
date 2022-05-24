@@ -32,6 +32,7 @@ static void help()
   printk("  --compress            Compress memory dump\n");
   printk("  --dump-file           Dump the contents of kfd-associated files\n");
   printk("  -r <checkpoint>       Restore from the given checkpoint directory\n");
+  printk("  --fuzzy-strace        Fuzzy check system call trace\n");
 
   shutdown(0);
 }
@@ -113,6 +114,15 @@ static size_t handle_option(const char** arg, bool last_arg)
     }
     restore_dir = arg[1];
     return 2;
+  }
+
+  if (strcmp(arg[0], "--fuzzy-strace") == 0) { // fuzzy check system call trace
+    if (!restore_dir) {
+      printk("-r must be specified before --fuzzy-strace\n");
+      suggest_help();
+    }
+    fuzzy_check_strace = 1;
+    return 1;
   }
 
   panic("unrecognized option: `%s'", arg[0]);
