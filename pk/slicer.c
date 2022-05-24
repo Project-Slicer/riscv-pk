@@ -344,12 +344,13 @@ void slicer_syscall_handler(const void* t)
 {
   const trapframe_t* tf = (const trapframe_t*)t;
   if (checkpoint_interval) {
+    // call other handlers
     switch (tf->gpr[17]) {
       case SYS_exit:
       case SYS_exit_group:
       case SYS_tgkill: {
         exit_handler();
-        break;
+        return;
       }
       case SYS_mmap:
       case SYS_munmap:
@@ -358,15 +359,14 @@ void slicer_syscall_handler(const void* t)
           msyscall_handler(tf);
         break;
       }
-      default: {
-        // perform checkpoint
-        if (rdinstret64() - last_checkpoint_instret >= checkpoint_interval)
-          slicer_checkpoint(tf);
-        // trace system call
-        trace_syscall(tf);
-        break;
-      }
     }
+
+    // perform checkpoint
+    if (rdinstret64() - last_checkpoint_instret >= checkpoint_interval)
+      slicer_checkpoint(tf);
+
+    // trace system call
+    trace_syscall(tf);
   } else if (restore_dir) {
     // check system call trace
     if (!check_syscall_trace(tf))
