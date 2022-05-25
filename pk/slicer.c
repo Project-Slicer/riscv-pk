@@ -362,11 +362,17 @@ void slicer_syscall_handler(const void* t)
     }
 
     // perform checkpoint
-    if (rdinstret64() - last_checkpoint_instret >= checkpoint_interval)
+    bool meet_interval =
+        rdinstret64() - last_checkpoint_instret >= checkpoint_interval;
+    // checkpoint will always be generated after `SYS_open`
+    // if `--dump-file` is specified
+    bool skip_sys_open = dump_file_contents && tf->gpr[17] == SYS_open;
+    if (meet_interval && !skip_sys_open)
       slicer_checkpoint(tf);
 
     // trace system call
-    trace_syscall(tf);
+    if (!skip_sys_open)
+      trace_syscall(tf);
   } else if (restore_dir) {
     // check system call trace
     if (!check_syscall_trace(tf))
@@ -379,6 +385,8 @@ void slicer_syscall_post_handler(const void* t)
   const trapframe_t* tf = (const trapframe_t*)t;
   if (dump_accessed_mem && checkpoint_id)
     msyscall_post_handler(tf);
+  if (dump_file_contents && tf->gpr[17] == SYS_open)
+    slicer_checkpoint(tf);
 }
 
 void slicer_checkpoint(const void* tf)
