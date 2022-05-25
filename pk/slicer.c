@@ -31,6 +31,7 @@ static size_t checkpoint_id;
 
 // For memory dump compression.
 static size_t *pmap_cache;
+static long last_syscall;
 static uintptr_t msyscall_vaddr;
 static size_t msyscall_len;
 #define MAX_COMPRESSORS 64
@@ -270,7 +271,7 @@ static void exit_handler()
 // Performs some necessary operations before memory system calls.
 static void msyscall_handler(const trapframe_t* tf)
 {
-  if (tf->gpr[17] == SYS_brk) {
+  if (last_syscall == SYS_brk) {
     msyscall_vaddr = current.brk == 0 ? ROUNDUP(current.brk_min, RISCV_PGSIZE)
                                       : current.brk;
   } else {
@@ -284,7 +285,7 @@ static void msyscall_handler(const trapframe_t* tf)
 static void msyscall_post_handler(const trapframe_t* tf)
 {
   // update vaddr and len
-  switch (tf->gpr[17]) {
+  switch (last_syscall) {
     case SYS_mmap: {
       if (tf->gpr[10] == -1)
         return;
@@ -344,8 +345,10 @@ void slicer_syscall_handler(const void* t)
 {
   const trapframe_t* tf = (const trapframe_t*)t;
   if (checkpoint_interval) {
+    last_syscall = tf->gpr[17];
+
     // call other handlers
-    switch (tf->gpr[17]) {
+    switch (last_syscall) {
       case SYS_exit:
       case SYS_exit_group:
       case SYS_tgkill: {
@@ -366,7 +369,7 @@ void slicer_syscall_handler(const void* t)
         rdinstret64() - last_checkpoint_instret >= checkpoint_interval;
     // checkpoint will always be generated after `SYS_open`
     // if `--dump-file` is specified
-    bool skip_sys_open = dump_file_contents && tf->gpr[17] == SYS_open;
+    bool skip_sys_open = dump_file_contents && last_syscall == SYS_open;
     if (meet_interval && !skip_sys_open)
       slicer_checkpoint(tf);
 
@@ -385,7 +388,7 @@ void slicer_syscall_post_handler(const void* t)
   const trapframe_t* tf = (const trapframe_t*)t;
   if (dump_accessed_mem && checkpoint_id)
     msyscall_post_handler(tf);
-  if (dump_file_contents && tf->gpr[17] == SYS_open)
+  if (dump_file_contents && last_syscall == SYS_open)
     slicer_checkpoint(tf);
 }
 
