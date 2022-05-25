@@ -31,6 +31,7 @@ static void help()
   printk("  --dump-accessed       Dump accessed memory only\n");
   printk("  --compress            Compress memory dump\n");
   printk("  --dump-file           Dump the contents of kfd-associated files\n");
+  printk("  --dump-after-open     Dump checkpoint after an open() syscall\n");
   printk("  -r <checkpoint>       Restore from the given checkpoint directory\n");
   printk("  --fuzzy-strace        Fuzzy check system call trace\n");
 
@@ -104,6 +105,15 @@ static size_t handle_option(const char** arg, bool last_arg)
       suggest_help();
     }
     dump_file_contents = 1;
+    return 1;
+  }
+
+  if (strcmp(arg[0], "--dump-after-open") == 0) { // dump checkpoint after an open() syscall
+    if (!checkpoint_interval) {
+      printk("-c must be specified before --dump-after-open\n");
+      suggest_help();
+    }
+    dump_after_open = 1;
     return 1;
   }
 

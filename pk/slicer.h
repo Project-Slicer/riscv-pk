@@ -11,6 +11,7 @@ extern const char* checkpoint_dir;
 extern int dump_accessed_mem;
 extern int compress_mem_dump;
 extern int dump_file_contents;
+extern int dump_after_open;
 extern const char* restore_dir;
 extern int fuzzy_check_strace;
 

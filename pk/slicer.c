@@ -20,6 +20,7 @@ const char* checkpoint_dir; // set by -d flag
 int dump_accessed_mem; // set by --dump-accessed flag
 int compress_mem_dump; // set by --compress flag
 int dump_file_contents; // set by --dump-file flag
+int dump_after_open; // set by --dump-after-open flag
 const char* restore_dir; // set by -r flag
 int fuzzy_check_strace; // set by --fuzzy-strace flag
 int dir_fd; // used by `ksyscall.h` and `checkpoint.c`
@@ -368,8 +369,8 @@ void slicer_syscall_handler(const void* t)
     bool meet_interval =
         rdinstret64() - last_checkpoint_instret >= checkpoint_interval;
     // checkpoint will always be generated after `SYS_open`
-    // if `--dump-file` is specified
-    bool skip_sys_open = dump_file_contents && last_syscall == SYS_open;
+    // if `--dump-after-open` is specified
+    bool skip_sys_open = dump_after_open && last_syscall == SYS_open;
     if (meet_interval && !skip_sys_open)
       slicer_checkpoint(tf);
 
@@ -388,7 +389,7 @@ void slicer_syscall_post_handler(const void* t)
   const trapframe_t* tf = (const trapframe_t*)t;
   if (dump_accessed_mem && checkpoint_id)
     msyscall_post_handler(tf);
-  if (dump_file_contents && last_syscall == SYS_open)
+  if (dump_after_open && last_syscall == SYS_open)
     slicer_checkpoint(tf);
 }
 
