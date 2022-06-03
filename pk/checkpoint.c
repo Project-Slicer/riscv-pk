@@ -420,9 +420,10 @@ static void restore_counter()
 
   set_counter(counter.time, counter.cycle, counter.instret);
   if (current.cycle0) {
-    current.time0 = counter.time;
-    current.cycle0 = counter.cycle;
-    current.instret0 = counter.instret;
+    // read counters again in case `set_counter` has no effect
+    current.time0 = rdtime64();
+    current.cycle0 = rdcycle64();
+    current.instret0 = rdinstret64();
   }
 }
 
