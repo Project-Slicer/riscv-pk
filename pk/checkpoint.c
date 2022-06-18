@@ -523,7 +523,7 @@ static void restore_files()
 // Inserts the current page into the page table.
 static void insert_current_page()
 {
-  uintptr_t vaddr = vaddr_type & ~((1 << RISCV_PGSHIFT) - 1);
+  uintptr_t vaddr = vaddr_type & ~(RISCV_PGSIZE - 1);
   int type = vaddr_type & ((1 << PTE_PPN_SHIFT) - 1);
   insert_page(vaddr, current_page, type);
 }
