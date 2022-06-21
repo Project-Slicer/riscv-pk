@@ -370,7 +370,8 @@ void slicer_syscall_handler(const void* t)
         rdinstret64() - last_checkpoint_instret >= checkpoint_interval;
     // checkpoint will always be generated after `SYS_open`
     // if `--dump-after-open` is specified
-    bool skip_sys_open = dump_after_open && last_syscall == SYS_open;
+    bool skip_sys_open = dump_after_open && (last_syscall == SYS_open ||
+                                             last_syscall == SYS_openat);
     if (meet_interval && !skip_sys_open)
       slicer_checkpoint(tf);
 
@@ -389,8 +390,10 @@ void slicer_syscall_post_handler(const void* t)
   const trapframe_t* tf = (const trapframe_t*)t;
   if (dump_accessed_mem && checkpoint_id)
     msyscall_post_handler(tf);
-  if (dump_after_open && last_syscall == SYS_open)
+  if (dump_after_open &&
+      (last_syscall == SYS_open || last_syscall == SYS_openat)) {
     slicer_checkpoint(tf);
+  }
 }
 
 void slicer_checkpoint(const void* tf)
